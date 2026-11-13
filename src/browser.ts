@@ -6,10 +6,12 @@ import { killChrome, launchChrome, type Chrome } from "./chrome.ts"
 import type { Config } from "./config.ts"
 import { log } from "./log.ts"
 import { chromium, type Browser, type BrowserContext } from "./patchright.ts"
-import { makeDirectory, processDirectory } from "./temp.ts"
+import { makeDirectory, processDirectory, recordDisplay } from "./temp.ts"
 import { startXvfb, type Display } from "./xvfb.ts"
 
 let display: Promise<Display> | undefined
+/** The started Xvfb, for synchronous cleanup. */
+let running: Display | undefined
 let policiesChecked = false
 
 /**
@@ -46,9 +48,14 @@ export function sharedDisplay(config: Config): Promise<Display> {
     })
     display = starting
     starting.then(
-      (started) => started.process.once("exit", () => {
-        if (display === starting) display = undefined
-      }),
+      (started) => {
+        running = started
+        recordDisplay(started.number)
+        started.process.once("exit", () => {
+          if (display === starting) display = undefined
+          if (running === started) running = undefined
+        })
+      },
       () => {
         if (display === starting) display = undefined
       },
@@ -57,9 +64,23 @@ export function sharedDisplay(config: Config): Promise<Display> {
   return display
 }
 
-export function stopSharedDisplay(): void {
-  void display?.then((started) => started.process.kill("SIGTERM"), () => undefined)
+/**
+ * Stops the process's Xvfb and waits (up to `waitMs`) for it to exit. Exiting before it does would let setpriv's
+ * death signal kill it before it removes its socket and lock files.
+ */
+export async function stopSharedDisplay(waitMs = 3_000): Promise<void> {
+  const current = display
   display = undefined
+  const started = await current?.catch(() => undefined)
+  if (!started || started.process.exitCode !== null || started.process.signalCode !== null) return
+  const exited = new Promise<void>((resolve) => started.process.once("exit", () => resolve()))
+  started.process.kill("SIGTERM")
+  await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, waitMs).unref())])
+}
+
+/** Synchronous last resort at exit: Xvfb gets no chance to clean up, the next server does it (see temp.ts). */
+export function killSharedDisplayNow(): void {
+  running?.process.kill("SIGKILL")
 }
 
 type TargetInfo = { targetId: string; type: string }

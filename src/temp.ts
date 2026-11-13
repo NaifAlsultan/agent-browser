@@ -8,6 +8,7 @@ import { log } from "./log.ts"
 
 const prefix = "agent-browser-"
 const ownerFile = "owner.pid"
+const displayFile = "display"
 
 function alive(pid: number): boolean {
   try {
@@ -38,12 +39,56 @@ export function removeStaleDirectories(parent: string): void {
       // No owner file: a process that died while creating the directory, or someone else's naming. Only take
       // directories that are clearly ours and old enough not to be in the middle of being set up.
       if (!Number.isInteger(pid) && Date.now() - fs.statSync(dir).mtimeMs < 60_000) continue
+      removeStaleDisplay(dir, uid)
       fs.rmSync(dir, { recursive: true, force: true })
       log("tmp.stale-removed", { dir })
     } catch {
       // Unreadable or racing with another process: leave it.
     }
   }
+}
+
+/**
+ * A killed server's Xvfb dies without removing its socket and lock files. Remove them when they're this user's and
+ * no live process holds the lock, so they don't pile up in /tmp.
+ */
+export function removeStaleDisplay(dir: string, uid: number | undefined, socketDir = "/tmp/.X11-unix", lockDir = "/tmp") {
+  let number: number
+  try {
+    number = Number(fs.readFileSync(path.join(dir, displayFile), "utf8"))
+  } catch {
+    return
+  }
+  if (!Number.isInteger(number) || number < 1) return
+  const lock = path.join(lockDir, `.X${number}-lock`)
+  const socket = path.join(socketDir, `X${number}`)
+  const ours = (file: string) => {
+    try {
+      return uid === undefined || fs.lstatSync(file).uid === uid
+    } catch {
+      return false
+    }
+  }
+  try {
+    const holder = Number(fs.readFileSync(lock, "utf8").trim())
+    if (Number.isInteger(holder) && holder > 0 && alive(holder)) return
+  } catch {
+    // No lock: nothing holds the number.
+  }
+  for (const file of [socket, lock]) {
+    if (!ours(file)) continue
+    try {
+      fs.unlinkSync(file)
+      log("tmp.stale-display-removed", { file })
+    } catch {
+      // Gone already, or not ours to remove.
+    }
+  }
+}
+
+/** Remembers the process's display number, for cleanup after a crash. */
+export function recordDisplay(number: number): void {
+  if (root) fs.writeFileSync(path.join(root, displayFile), String(number))
 }
 
 let root: string | undefined

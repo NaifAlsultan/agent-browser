@@ -115,7 +115,7 @@ for (const setup of setups) {
     }
   }
 }
-stopSharedDisplay()
+await stopSharedDisplay()
 removeProcessDirectory()
 fs.writeFileSync(path.join(out, "results.json"), JSON.stringify(results, null, 2))
 console.log(JSON.stringify(results, null, 2))

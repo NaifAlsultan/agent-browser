@@ -49,7 +49,18 @@ describe("agent-browser over MCP", { skip, timeout: 300_000 }, () => {
   }
   const profiles = () => fs.readdirSync(tmp).flatMap((dir) => (dir.startsWith("agent-browser-") ? fs.readdirSync(path.join(tmp, dir)).filter((entry) => entry.startsWith("ses_")) : []))
 
+  // The X servers already on this machine (a desktop's Xwayland, say), to check the tests leave them alone.
+  const xSockets = () => {
+    try {
+      return Object.fromEntries(fs.readdirSync("/tmp/.X11-unix").map((name) => [name, fs.lstatSync(path.join("/tmp/.X11-unix", name)).ino]))
+    } catch {
+      return {}
+    }
+  }
+  let xSocketsBefore: Record<string, number> = {}
+
   before(async () => {
+    xSocketsBefore = xSockets()
     fixtures = await startFixtureServer()
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), "agent-browser-test-"))
     const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined))
@@ -234,6 +245,11 @@ describe("agent-browser over MCP", { skip, timeout: 300_000 }, () => {
     for (let i = 0; i < 75 && serverPid && alive(serverPid); i++) await new Promise((resolve) => setTimeout(resolve, 200))
     assert.ok(!serverPid || !alive(serverPid), "the server process is still running")
     assert.deepEqual(fs.readdirSync(tmp).filter((dir) => dir.startsWith("agent-browser-")), [])
+  })
+
+  test("left every X server that was already running alone", () => {
+    const after = xSockets()
+    for (const [name, inode] of Object.entries(xSocketsBefore)) assert.equal(after[name], inode, `/tmp/.X11-unix/${name} was replaced or removed`)
   })
 })
 

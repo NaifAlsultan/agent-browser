@@ -42,8 +42,11 @@ MCP client ──stdio──▶ agent-browser ──▶ Patchright ──ws://12
 
 - **One Chrome per agent session**, keyed by OpenCode's `ai.opencode/sessionID` request metadata (calls without it
   share one default session). Separate processes rather than incognito-style contexts, which sites can detect.
-- **One Xvfb per server process** (`-displayfd`, a 1920×1080 screen with a desktop panel work area), protected by
-  an X authority cookie so other local users can't connect to it.
+- **One Xvfb per server process**: a 1920×1080 screen with a desktop panel work area, protected by an X authority
+  cookie so other local users can't connect to it. It stays clear of real displays: the display number skips any
+  number with a lock, socket file or abstract socket (Xvfb's own `-displayfd` search can replace the socket file of
+  an Xwayland that listens on a file only); it listens on its socket file only, never on an abstract socket (shared
+  machine-wide, even with sandboxes that have their own `/tmp`); and Chrome connects by socket path.
 - **Chrome is launched by agent-browser, not by Patchright**, so every flag is controlled: no `--enable-automation`,
   no `--headless`, none of Playwright's automation switches. DevTools runs over `--remote-debugging-pipe`, never
   a port: a DevTools port has no authentication, so any local user could take the browser over.

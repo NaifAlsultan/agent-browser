@@ -1,15 +1,16 @@
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
 import fs from "node:fs"
+import net from "node:net"
 import os from "node:os"
 import path from "node:path"
 import { afterEach, describe, test } from "node:test"
 import { chromeArgs, chromeEnv, gpuArgs } from "../../src/chrome.ts"
 import { loadConfig } from "../../src/config.ts"
 import { redacted, redactLines, valueLines } from "../../src/snapshot.ts"
-import { removeStaleDirectories } from "../../src/temp.ts"
+import { removeStaleDirectories, removeStaleDisplay } from "../../src/temp.ts"
 import { errorText, normalizeUrl, sessionKeyOf } from "../../src/tools.ts"
-import { workAreaFor, xauthEntry } from "../../src/xvfb.ts"
+import { displayInUse, workAreaFor, xauthEntry } from "../../src/xvfb.ts"
 
 describe("snapshot redaction", () => {
   const snapshot = [
@@ -138,8 +139,40 @@ describe("X display", () => {
     assert.equal(at, entry.length)
   })
 
+  test("an empty display number (any display, as socket-path DISPLAYs need) is written as an empty field", () => {
+    const entry = xauthEntry("", Buffer.alloc(16))
+    // family, empty address, empty number
+    assert.deepEqual([...entry.subarray(0, 6)], [0xff, 0xff, 0, 0, 0, 0])
+  })
+
   test("the work area leaves a panel at the top", () => {
     assert.deepEqual(workAreaFor(1920, 1080), { x: 0, y: 32, width: 1920, height: 1048 })
+  })
+
+  test("a display number counts as taken with a lock, a socket file (even a stale symlink) or a live abstract socket", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ab-display-test-"))
+    const sockets = path.join(dir, "sockets")
+    fs.mkdirSync(sockets)
+    const number = 50_000 + Math.floor(Math.random() * 10_000)
+    try {
+      assert.equal(await displayInUse(number, sockets, dir), false)
+      fs.writeFileSync(path.join(dir, `.X${number}-lock`), "123")
+      assert.equal(await displayInUse(number, sockets, dir), true)
+      fs.rmSync(path.join(dir, `.X${number}-lock`))
+      fs.symlinkSync("nowhere", path.join(sockets, `X${number}`))
+      assert.equal(await displayInUse(number, sockets, dir), true)
+      fs.rmSync(path.join(sockets, `X${number}`))
+      // The abstract name is always the conventional one, whatever the socket directory.
+      const server = net.createServer().listen(`\0/tmp/.X11-unix/X${number}`)
+      await new Promise((resolve) => server.once("listening", resolve))
+      try {
+        assert.equal(await displayInUse(number, sockets, dir), true)
+      } finally {
+        server.close()
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
   })
 })
 
@@ -175,6 +208,30 @@ describe("config", () => {
     process.env.AGENT_BROWSER_SCREEN = "1920x1080"
     process.env.AGENT_BROWSER_IDLE_TIMEOUT_MS = "soon"
     assert.throws(() => loadConfig(), /AGENT_BROWSER_IDLE_TIMEOUT_MS/)
+  })
+})
+
+describe("leftover displays", () => {
+  test("a dead server's socket and lock are removed; a live lock keeps them", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "ab-stale-display-"))
+    try {
+      const sockets = path.join(root, "sockets")
+      const dir = path.join(root, "agent-browser-x")
+      fs.mkdirSync(sockets)
+      fs.mkdirSync(dir)
+      fs.writeFileSync(path.join(dir, "display"), "321")
+      const dead = spawnSync(process.execPath, ["-e", "process.stdout.write(String(process.pid))"]).stdout.toString()
+      fs.writeFileSync(path.join(sockets, "X321"), "")
+      fs.writeFileSync(path.join(root, ".X321-lock"), `${process.pid}\n`)
+      removeStaleDisplay(dir, process.getuid?.(), sockets, root)
+      assert.equal(fs.existsSync(path.join(sockets, "X321")), true, "a live lock holder keeps the display")
+      fs.writeFileSync(path.join(root, ".X321-lock"), `${dead}\n`)
+      removeStaleDisplay(dir, process.getuid?.(), sockets, root)
+      assert.equal(fs.existsSync(path.join(sockets, "X321")), false)
+      assert.equal(fs.existsSync(path.join(root, ".X321-lock")), false)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
   })
 })
 

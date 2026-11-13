@@ -45,6 +45,6 @@ try {
   }
 } finally {
   await browser.close()
-  stopSharedDisplay()
+  await stopSharedDisplay()
   removeProcessDirectory()
 }

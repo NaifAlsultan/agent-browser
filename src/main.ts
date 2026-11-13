@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // agent-browser's MCP server over stdio.
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
-import { stopSharedDisplay } from "./browser.ts"
+import { killSharedDisplayNow, stopSharedDisplay } from "./browser.ts"
 import { loadConfig } from "./config.ts"
 import { log } from "./log.ts"
 import { createServer, serverVersion } from "./server.ts"
@@ -20,7 +20,7 @@ async function shutdown(reason: string, code = 0) {
   const deadline = new Promise((resolve) => setTimeout(resolve, 10_000).unref())
   await Promise.race([sessions.closeAll(), deadline]).catch(() => undefined)
   sessions.killAll()
-  stopSharedDisplay()
+  await stopSharedDisplay()
   removeProcessDirectory()
   process.exit(code)
 }
@@ -28,7 +28,7 @@ async function shutdown(reason: string, code = 0) {
 // Whatever happens, don't leave Chrome running or a profile on disk.
 process.on("exit", () => {
   sessions.killAll()
-  stopSharedDisplay()
+  killSharedDisplayNow()
   try {
     removeProcessDirectory()
   } catch {
