@@ -55,11 +55,16 @@ export function removeDefaultMediaEmulation<T extends CdpCommand>(message: T): T
 /** Commands browse's human-like input paces. */
 export const humanInputMethods: ReadonlySet<string> = new Set(["Input.dispatchMouseEvent", "Input.dispatchKeyEvent", "DOM.scrollIntoViewIfNeeded"])
 
-type SessionInfo = {
+export type SessionInfo = {
+  readonly sessionId: string
   readonly targetId: string
   readonly type: string
   /** The page (tab) this session's target belongs to; its own target id for a page. */
   readonly pageTargetId: string | undefined
+  /** The session the attach was announced on (for an iframe, its parent frame's session). */
+  readonly parentSessionId: string | undefined
+  /** Target.attachedToTarget's params, to announce the target again. */
+  readonly attachParams: Record<string, unknown>
 }
 
 /**
@@ -81,7 +86,7 @@ export class TargetTracker {
       if (!sessionId || !targetId) return []
       const parent = message.sessionId ? this.sessions.get(message.sessionId) : undefined
       const pageTargetId = type === "page" ? targetId : parent?.pageTargetId
-      this.sessions.set(sessionId, { targetId, type, pageTargetId })
+      this.sessions.set(sessionId, { sessionId, targetId, type, pageTargetId, parentSessionId: message.sessionId, attachParams: { ...params } })
       return []
     }
     if (message.method === "Target.detachedFromTarget") {
@@ -96,6 +101,11 @@ export class TargetTracker {
       }
     }
     return []
+  }
+
+  /** Out-of-process iframes announced on this session (direct children only). */
+  iframeChildren(sessionId: string): SessionInfo[] {
+    return [...this.sessions.values()].filter((info) => info.type === "iframe" && info.parentSessionId === sessionId)
   }
 
   /** Whether commands on this session address a tab's top-level page. */

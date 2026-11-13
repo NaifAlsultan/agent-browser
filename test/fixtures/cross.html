@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Cross-origin frame</title></head>
+<body>
+  <h1>Embedded from another site</h1>
+  <iframe id="cross" title="Other site" width="400" height="120"></iframe>
+  <script>
+    // The same fixture server under the other loopback name is a different site, so Chrome puts the frame in its
+    // own process (an out-of-process iframe).
+    const other = location.hostname === "localhost" ? "127.0.0.1" : "localhost"
+    document.getElementById("cross").src = `${location.protocol}//${other}:${location.port}/frame.html`
+  </script>
+</body>
+</html>

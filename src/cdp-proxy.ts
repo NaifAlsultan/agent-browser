@@ -23,6 +23,15 @@ const maxPayload = 256 * 1024 * 1024
 
 type Pending = { resolve: (result: unknown) => void; reject: (error: Error) => void }
 
+async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: Parameters<typeof clearTimeout>[0]
+  try {
+    return await Promise.race([promise, new Promise<never>((_, reject) => (timer = setTimeout(() => reject(new Error(`timed out after ${ms} ms`)), ms)))])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 export type CdpProxyOptions = {
   /** Chrome's fd 3: commands go here. */
   readonly toChrome: Writable
@@ -120,8 +129,9 @@ export class CdpProxy {
       return
     }
     if (typeof message.id !== "number" || typeof message.method !== "string") return
-    const rewritten = removeDefaultMediaEmulation(message)
+    let rewritten = removeDefaultMediaEmulation(message)
     if (rewritten.method === "Page.captureScreenshot" && rewritten.sessionId) this.nudgeScreenshot(rewritten)
+    if (rewritten.method === "Page.createIsolatedWorld") rewritten = this.freshWorld(rewritten)
     const key = rewritten.sessionId ?? ""
     const paced = this.humanInput && humanInputMethods.has(rewritten.method)
     const queue = this.queues.get(key)
@@ -215,7 +225,90 @@ export class CdpProxy {
         // Not JSON: forwarded as is, Patchright reports it.
       }
     }
+    if (this.held) {
+      this.held.push(text)
+      return
+    }
     this.client?.send(text)
+    if (!idMatch && text.includes('"BackForwardCacheRestore"') && text.startsWith('{"method":"Page.frameNavigated"')) {
+      const message = JSON.parse(text) as CdpMessage & { params: { frame?: { parentId?: string } } }
+      if (message.sessionId && !message.params.frame?.parentId) {
+        const page = this.tracker.pageNumber(message.sessionId)
+        if (page !== undefined) this.worldGenerations.set(page, (this.worldGenerations.get(page) ?? 0) + 1)
+        void this.replayRestoredFrames(message.sessionId)
+      }
+    }
+  }
+
+  /** Per tab: how many times it was restored from the back/forward cache (see freshWorld). */
+  private readonly worldGenerations = new Map<number, number>()
+
+  /**
+   * A restored page keeps its documents, and with them Patchright's isolated world and what Patchright stored on
+   * elements there: element refs carry the number of the frame they were made in, which changes when Patchright
+   * sees the frame again, so cached refs in a restored iframe would point at a frame that no longer exists. After a
+   * restore, Patchright gets a fresh isolated world (another world name; pages can't see isolated worlds).
+   */
+  private freshWorld(command: CdpCommand): CdpCommand {
+    const page = this.tracker.pageNumber(command.sessionId)
+    const generation = page === undefined ? 0 : (this.worldGenerations.get(page) ?? 0)
+    const name = command.params?.worldName
+    if (!generation || typeof name !== "string") return command
+    return { ...command, params: { ...command.params, worldName: `${name}:${generation}` } }
+  }
+
+  /** Messages from Chrome held back while frames are announced again (see replayRestoredFrames). */
+  private held: string[] | undefined
+
+  /**
+   * A page restored from the back/forward cache keeps its iframes, but Chrome doesn't announce them again, and
+   * Patchright forgets every child frame when the main frame navigates. Its iframes would then be invisible to
+   * snapshots and actions. (Stock Playwright avoids this by turning the cache off, which sites can detect.) So,
+   * like browse's relay does after reconnects (replayChildTargetsForParent in cli/src/cdp/shims.ts), tell
+   * Patchright about them again: same-process frames as frameAttached + frameNavigated, out-of-process iframes as
+   * a fresh attach of their existing session. Other messages from Chrome wait until that's done.
+   */
+  private async replayRestoredFrames(sessionId: string) {
+    this.held ??= []
+    try {
+      await withTimeout(this.announceFrames(sessionId), 5_000)
+    } catch (error) {
+      debug("proxy.bfcache-replay-failed", { error: String(error) })
+    } finally {
+      const held = this.held ?? []
+      this.held = undefined
+      for (const text of held) this.client?.send(text)
+    }
+  }
+
+  private event(method: string, params: Record<string, unknown>, sessionId: string) {
+    this.client?.send(JSON.stringify({ method, params, sessionId }))
+  }
+
+  private async announceFrames(sessionId: string) {
+    type FrameTree = { frame: { id: string; parentId?: string }; childFrames?: FrameTree[] }
+    const { frameTree } = (await this.call(sessionId, "Page.getFrameTree")) as { frameTree: FrameTree }
+    const outOfProcess = this.tracker.iframeChildren(sessionId)
+    const outOfProcessIds = new Set(outOfProcess.map((child) => child.targetId))
+    const walk = (node: FrameTree) => {
+      for (const child of node.childFrames ?? []) {
+        if (outOfProcessIds.has(child.frame.id)) continue
+        this.event("Page.frameAttached", { frameId: child.frame.id, parentFrameId: node.frame.id }, sessionId)
+        this.event("Page.frameNavigated", { frame: child.frame, type: "Navigation" }, sessionId)
+        walk(child)
+      }
+    }
+    walk(frameTree)
+    for (const child of outOfProcess) {
+      // Patchright needs the frame before the iframe's target; then a fresh session for the target (reusing the old
+      // session id would mix up replies to commands sent on it before), which Patchright sets up by itself. Chrome
+      // sends the detach and attach events; they're held until this is done, so they land after frameAttached.
+      const targetInfo = (child.attachParams.targetInfo ?? {}) as { parentFrameId?: string }
+      this.event("Page.frameAttached", { frameId: child.targetId, parentFrameId: targetInfo.parentFrameId ?? frameTree.frame.id }, sessionId)
+      await this.call(sessionId, "Target.detachFromTarget", { sessionId: child.sessionId }).catch(() => undefined)
+      await this.call(sessionId, "Target.attachToTarget", { targetId: child.targetId, flatten: true })
+    }
+    debug("proxy.bfcache-replayed", { sessionId, outOfProcess: outOfProcess.length })
   }
 
   private chromeGone() {

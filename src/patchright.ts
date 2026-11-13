@@ -9,4 +9,4 @@ const internals = require("patchright-core/lib/coreBundle") as Parameters<typeof
 tunePatchright(internals)
 
 export { chromium, errors }
-export type { Browser, BrowserContext, Frame, Locator, Page } from "patchright-core"
+export type { Browser, BrowserContext, Dialog, Frame, Locator, Page } from "patchright-core"

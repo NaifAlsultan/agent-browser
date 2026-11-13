@@ -10,6 +10,28 @@ import { makeDirectory, processDirectory } from "./temp.ts"
 import { startXvfb, type Display } from "./xvfb.ts"
 
 let display: Promise<Display> | undefined
+let policiesChecked = false
+
+/**
+ * Google Chrome applies the machine's managed policies from /etc/opt/chrome/policies to every profile, ours
+ * included: force-installed extensions, blocked cookies and the like change what sites see. (NixOS's
+ * programs.chromium writes its policies there as well as for Chromium.) There's no flag to turn that off, so say so.
+ */
+function warnAboutPolicies() {
+  if (policiesChecked) return
+  policiesChecked = true
+  for (const kind of ["managed", "recommended"]) {
+    const dir = `/etc/opt/chrome/policies/${kind}`
+    const files = (() => {
+      try {
+        return fs.readdirSync(dir).filter((name) => name.endsWith(".json"))
+      } catch {
+        return []
+      }
+    })()
+    if (files.length) log("chrome.policies-warning", { dir, files: files.join(","), note: "Chrome applies these policies to agent-browser's profiles too (extensions, cookie settings); sites may notice. Remove them if this machine's Chrome is only used by agent-browser." })
+  }
+}
 
 /** The process's Xvfb, started on first use (and again if it died). */
 export function sharedDisplay(config: Config): Promise<Display> {
@@ -78,6 +100,7 @@ export class AgentBrowser {
   }
 
   static async launch(config: Config, label = "session"): Promise<AgentBrowser> {
+    warnAboutPolicies()
     const { display: displayName, xauthority, workArea } = await sharedDisplay(config)
     const directory = makeDirectory(label.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 40) || "session", config.tmpDir)
     let chrome: Chrome | undefined

@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Test form</title></head>
+<body>
+  <h1>Sign up</h1>
+  <form id="signup" action="/submitted" method="get">
+    <label>Name <input name="name" autocomplete="name"></label>
+    <label>Email <input name="email" type="email"></label>
+    <label>Password <input name="password" type="password"></label>
+    <label>Code <input name="otp" autocomplete="one-time-code"></label>
+    <label>Card number <input name="card" autocomplete="cc-number"></label>
+    <label>CVC <input name="cvc" id="cvc"></label>
+    <label>Country
+      <select name="country"><option value="sa">Saudi Arabia</option><option value="us">United States</option></select>
+    </label>
+    <label><input type="checkbox" name="terms"> I agree</label>
+    <textarea name="bio" aria-label="Bio"></textarea>
+    <button type="submit">Create account</button>
+  </form>
+  <p><a href="#more" id="more-link">More</a> <a href="/form.html" target="_blank">Open in new tab</a></p>
+  <iframe src="/frame.html" title="Newsletter" width="400" height="120"></iframe>
+  <div style="height: 2500px"></div>
+  <p id="bottom">Bottom of the page</p>
+</body>
+</html>
