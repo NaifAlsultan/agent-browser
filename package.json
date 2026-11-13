@@ -1,0 +1,36 @@
+{
+  "name": "agent-browser",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A background browser for AI agents, as an MCP server: real Google Chrome on a virtual display, driven through Patchright, built to avoid bot detection.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "bin": {
+    "agent-browser": "src/main.ts"
+  },
+  "files": [
+    "src",
+    "vendor"
+  ],
+  "scripts": {
+    "start": "node src/main.ts",
+    "test": "node --test --test-concurrency=1 'test/unit/**/*.test.ts'",
+    "test:integration": "node --test --test-concurrency=1 'test/integration/**/*.test.ts'",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "patchright-core": "1.64.3",
+    "ws": "8.23.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "@types/ws": "8.18.2",
+    "playwright-core": "1.64.1",
+    "typescript": "6.0.3"
+  }
+}
