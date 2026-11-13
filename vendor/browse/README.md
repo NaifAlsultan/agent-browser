@@ -10,8 +10,9 @@ The directory layout mirrors upstream's `cli/src/`, so the files' own imports wo
 | `execute/human-input.ts` | `cli/src/execute/human-input.ts` | `eaeecb109c3b2aca0bbd68aa55301d6e9a4035fc59438e047397182d43087890` |
 | `execute/challenge-detection.ts` | `cli/src/execute/challenge-detection.ts` | `e47f826fca6886ca22491e6ae62954fc59ad998f4ea1afe457d9544a1e942edf` |
 | `execute/patchright-tuning.ts` | `cli/src/execute/patchright-tuning.ts` | `b3f3377f9728a5200be5db0bd7b1d24b84632cc52929fca2e90eb99362ab8d79` |
-| `test/human-input.test.ts` | `cli/test/human-input.test.ts` | ported from `bun:test` to `node:test` |
-| `test/challenge-detection.test.ts` | `cli/test/challenge-detection.test.ts` | ported from `bun:test` to `node:test` |
+
+Their tests are ported to `node:test` in the repository's `test/unit/`: `browse-human-input.test.ts` (from
+`cli/test/human-input.test.ts`) and `browse-challenge-detection.test.ts` (from `cli/test/challenge-detection.test.ts`).
 
 ## Local changes
 

@@ -22,8 +22,10 @@
         default = agent-browser;
       });
 
+      # The package runs the type check and unit tests while it builds. The integration tests need a display
+      # and Chrome, so they run in the dev shell instead: npm run test:integration.
       checks = forAllSystems (pkgs: {
-        unit = pkgs.callPackage ./nix/unit-tests.nix { agent-browser = self.packages.${pkgs.system}.agent-browser; };
+        unit = self.packages.${pkgs.stdenv.hostPlatform.system}.agent-browser;
       });
 
       devShells = forAllSystems (pkgs: {

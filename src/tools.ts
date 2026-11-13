@@ -32,8 +32,9 @@ export function errorText(error: unknown): string {
 /** Normalizes what an agent passes as a URL: a bare host gets https://. */
 export function normalizeUrl(input: string): string {
   const url = input.trim()
-  if (/^[a-z][a-z0-9+.-]*:/i.test(url)) return url
-  if (/^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|$)/i.test(url)) return `http://${url}`
+  if (/^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?([/?#]|$)/i.test(url)) return `http://${url}`
+  // host:port looks like a scheme, but isn't one.
+  if (/^[a-z][a-z0-9+.-]*:/i.test(url) && !/^[^/:]+:\d+([/?#]|$)/.test(url)) return url
   return `https://${url}`
 }
 
