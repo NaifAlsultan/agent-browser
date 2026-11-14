@@ -89,14 +89,14 @@ should have (for example, run the whole agent in a sandbox).
 
 ```nix
 {
-  inputs.agent-browser.url = "github:<owner>/agent-browser";
+  inputs.agent-browser.url = "github:NaifAlsultan/agent-browser";
   # ...
   environment.systemPackages = [ inputs.agent-browser.packages.x86_64-linux.default ];
 }
 ```
 
 The package bundles Chrome, Xvfb and the other tools it runs; Google Chrome is unfree, and the flake allows it for
-this package only. Try it with `nix run github:<owner>/agent-browser` (it speaks MCP on stdin and stdout).
+this package only. Try it with `nix run github:NaifAlsultan/agent-browser` (it speaks MCP on stdin and stdout).
 
 ### OpenCode
 
