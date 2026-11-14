@@ -141,7 +141,6 @@ describe("X display", () => {
 
   test("an empty display number (any display, as socket-path DISPLAYs need) is written as an empty field", () => {
     const entry = xauthEntry("", Buffer.alloc(16))
-    // family, empty address, empty number
     assert.deepEqual([...entry.subarray(0, 6)], [0xff, 0xff, 0, 0, 0, 0])
   })
 
@@ -239,7 +238,6 @@ describe("leftover directories", () => {
   test("removes directories of agent-browser processes that are gone, and keeps the rest", () => {
     const parent = fs.mkdtempSync(path.join(os.tmpdir(), "ab-stale-test-"))
     try {
-      // A pid that is certainly gone: a child that already exited.
       const dead = spawnSync(process.execPath, ["-e", "process.stdout.write(String(process.pid))"]).stdout.toString()
       const make = (name: string, pid?: string) => {
         const dir = path.join(parent, name)
@@ -254,7 +252,6 @@ describe("leftover directories", () => {
       removeStaleDirectories(parent)
       assert.equal(fs.existsSync(gone), false)
       assert.equal(fs.existsSync(live), true)
-      // No owner yet and brand new: probably being set up right now.
       assert.equal(fs.existsSync(fresh), true)
       assert.equal(fs.existsSync(other), true)
     } finally {

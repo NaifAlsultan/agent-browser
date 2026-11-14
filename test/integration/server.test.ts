@@ -1,5 +1,3 @@
-// End to end: the MCP server over stdio, driving real Chrome on Xvfb against local fixture pages.
-// Needs Chrome and Xvfb (the dev shell sets AGENT_BROWSER_CHROME and AGENT_BROWSER_XVFB).
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
 import fs from "node:fs"
@@ -49,7 +47,6 @@ describe("agent-browser over MCP", { skip, timeout: 300_000 }, () => {
   }
   const profiles = () => fs.readdirSync(tmp).flatMap((dir) => (dir.startsWith("agent-browser-") ? fs.readdirSync(path.join(tmp, dir)).filter((entry) => entry.startsWith("ses_")) : []))
 
-  // The X servers already on this machine (a desktop's Xwayland, say), to check the tests leave them alone.
   const xSockets = () => {
     try {
       return Object.fromEntries(fs.readdirSync("/tmp/.X11-unix").map((name) => [name, fs.lstatSync(path.join("/tmp/.X11-unix", name)).ino]))
@@ -80,7 +77,6 @@ describe("agent-browser over MCP", { skip, timeout: 300_000 }, () => {
 
   after(async () => {
     await client?.close()
-    // The server cleans up when its stdin closes; give it a moment.
     for (let i = 0; i < 50 && serverPid && alive(serverPid); i++) await new Promise((resolve) => setTimeout(resolve, 200))
     await fixtures?.close()
     if (tmp) fs.rmSync(tmp, { recursive: true, force: true })
@@ -140,7 +136,6 @@ describe("agent-browser over MCP", { skip, timeout: 300_000 }, () => {
     await ok("open", { url: `${fixtures.url}/cross.html` })
     assert.match(await ok("snapshot"), /button "Subscribe"/)
     await ok("open", { url: `${fixtures.url}/popup.html` })
-    // The page comes back from the back/forward cache, which Chrome doesn't announce frames for.
     assert.match(await ok("back"), /Page: Cross-origin frame/)
     const snapshot = await ok("snapshot")
     await ok("click", { ref: refOf(snapshot, /button "Subscribe"/) })
@@ -234,7 +229,6 @@ describe("agent-browser over MCP", { skip, timeout: 300_000 }, () => {
     assert.match(await ok("close", {}, "ses_test_b"), /deleted its profile/)
     assert.deepEqual(profiles().filter((dir) => dir.startsWith("ses_test_b")), [])
     assert.match(await ok("close", {}, "ses_test_b"), /had no browser/)
-    // The next call starts a fresh browser with an empty profile.
     await ok("open", { url: `${fixtures.url}/form.html` }, "ses_test_b")
     const fresh = await ok("run_script", { code: "return await page.evaluate(() => localStorage.getItem('who'))" }, "ses_test_b")
     assert.match(fresh, /Returned:\nnull/)

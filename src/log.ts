@@ -1,4 +1,4 @@
-// Logs go to stderr: stdout carries the MCP protocol. AGENT_BROWSER_DEBUG=1 adds per-input and per-step detail.
+// stderr: stdout carries the MCP protocol.
 
 const debugEnabled = /^(1|true|on|yes)$/i.test(process.env.AGENT_BROWSER_DEBUG?.trim() ?? "")
 

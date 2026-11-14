@@ -1,4 +1,4 @@
-// Ported from browse's cli/test/human-input.test.ts (MIT, see vendor/browse) at 53eb63dd: bun:test became node:test.
+// Ported from browse's cli/test/human-input.test.ts (see vendor/browse).
 import assert from "node:assert/strict"
 import { afterEach, describe, test } from "node:test"
 import { beforeInput, clampPoint, humanInputEnabled, setHumanInput } from "../../vendor/browse/execute/human-input.ts"

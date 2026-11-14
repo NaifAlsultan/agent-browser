@@ -27,7 +27,6 @@ buildNpmPackage {
 
   nodejs = nodejs_24;
   npmDepsHash = "sha256-PoJe1o3V6Ma/rFodSnkGaJGFSq2OeoDgfBXs3nG9DtI=";
-  # Nothing to build: Node runs the TypeScript directly. No dependency needs an install script.
   dontNpmBuild = true;
   npmFlags = [ "--ignore-scripts" ];
 
@@ -46,7 +45,6 @@ buildNpmPackage {
     npm prune --omit=dev --ignore-scripts --no-audit --no-fund
     mkdir -p $out/lib/agent-browser
     cp -r package.json src vendor node_modules $out/lib/agent-browser/
-    # The paths are defaults: setting the variables overrides them.
     makeWrapper ${lib.getExe nodejs_24} $out/bin/agent-browser \
       --add-flags $out/lib/agent-browser/src/main.ts \
       --set-default AGENT_BROWSER_CHROME ${google-chrome}/bin/google-chrome-stable \

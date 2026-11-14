@@ -1,5 +1,4 @@
-// Ported from browse's cli/test/challenge-detection.test.ts (MIT, see vendor/browse) at 53eb63dd: bun:test became
-// node:test, and the handoff() expectation follows agent-browser's change to challengeWarning.
+// Ported from browse's cli/test/challenge-detection.test.ts (see vendor/browse).
 import assert from "node:assert/strict"
 import { describe, test } from "node:test"
 import { challengeWarning, classifyChallenge, type ChallengeDetection, type ChallengeProbe } from "../../vendor/browse/execute/challenge-detection.ts"
@@ -19,7 +18,6 @@ function probe(overrides: Partial<ChallengeProbe>): ChallengeProbe {
   }
 }
 
-/** bun's toMatchObject for the two fields the tests check. */
 function matches(actual: ChallengeDetection | undefined, expected: Pick<ChallengeDetection, "vendor" | "kind">) {
   assert.ok(actual, `expected ${JSON.stringify(expected)}, got undefined`)
   assert.deepEqual({ vendor: actual.vendor, kind: actual.kind }, expected)

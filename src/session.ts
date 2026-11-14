@@ -1,6 +1,4 @@
-// One browser per OpenCode session. The first tool call of a session launches Chrome with a fresh profile; after
-// the idle timeout, a close call, or process exit, Chrome is closed and the profile deleted. Separate Chrome
-// processes rather than incognito-style contexts in one Chrome, because sites can detect incognito.
+// A Chrome process per session rather than incognito-style contexts in one Chrome: sites can detect incognito.
 import { AgentBrowser } from "./browser.ts"
 import type { Config } from "./config.ts"
 import { log } from "./log.ts"
@@ -12,11 +10,8 @@ export class Session {
   readonly key: string
   readonly browser: AgentBrowser
   private current: Page
-  /** Things that happened between tool calls (dialogs, tabs opened or closed), reported with the next result. */
   private readonly events: string[] = []
-  /** Pages opened since the last call to takeOpenedPages. */
   private opened: Page[] = []
-  /** Pages the pointer has been over (wheel scrolling needs the pointer on the page). */
   readonly pointerPlaced = new WeakSet<Page>()
   private queue: Promise<unknown> = Promise.resolve()
 
@@ -49,7 +44,6 @@ export class Session {
     return this.browser.context.pages().filter((page) => !page.isClosed())
   }
 
-  /** A page to work in: the current one, or a new tab if every tab was closed. */
   async ensurePage(): Promise<Page> {
     const page = this.page
     if (!page.isClosed()) return page
@@ -57,7 +51,6 @@ export class Session {
     return this.current
   }
 
-  /** Pages opened since the last call (popups, target=_blank links, tabs opened by scripts). */
   takeOpenedPages(): Page[] {
     const opened = this.opened.filter((page) => !page.isClosed())
     this.opened = []
@@ -68,7 +61,6 @@ export class Session {
     return this.events.splice(0)
   }
 
-  /** Runs tool calls of this session one at a time. */
   run<T>(task: () => Promise<T>): Promise<T> {
     const result = this.queue.then(task, task)
     this.queue = result.catch(() => undefined)
@@ -76,7 +68,7 @@ export class Session {
   }
 
   private watch(page: Page) {
-    // Nobody can see a dialog, and an unanswered one blocks the page: accept it, and tell the agent.
+    // Nobody can see a dialog, and an unanswered one blocks the page.
     page.on("dialog", (dialog: Dialog) => {
       const text = dialog.message().replace(/\s+/g, " ").slice(0, 300)
       this.events.push(`A ${dialog.type()} dialog said "${text}"; it was accepted.`)
@@ -91,7 +83,6 @@ export class Session {
 export class SessionManager {
   private readonly config: Config
   private readonly sessions = new Map<string, Promise<Session>>()
-  /** Sessions whose browser is up, for synchronous cleanup at exit. */
   private readonly live = new Map<string, Session>()
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>()
   private readonly busy = new Map<string, number>()
@@ -100,7 +91,6 @@ export class SessionManager {
     this.config = config
   }
 
-  /** Runs `task` with the session's browser, launching it on first use. Calls of one session run in order. */
   async use<T>(key: string, task: (session: Session) => Promise<T>): Promise<T> {
     this.busy.set(key, (this.busy.get(key) ?? 0) + 1)
     this.clearTimer(key)
@@ -130,7 +120,6 @@ export class SessionManager {
     if (existing) {
       const session = await existing.catch(() => undefined)
       if (session?.browser.connected) return session
-      // Chrome died or failed to start: start over.
       if (this.sessions.get(key) === existing) this.sessions.delete(key)
       if (session && this.live.get(key) === session) this.live.delete(key)
       if (session) await session.browser.close().catch(() => undefined)
@@ -151,7 +140,6 @@ export class SessionManager {
     return await this.sessions.get(key)!
   }
 
-  /** Closes the session's browser and deletes its profile. False when it had none. */
   async close(key: string): Promise<boolean> {
     this.clearTimer(key)
     const existing = this.sessions.get(key)
@@ -168,7 +156,6 @@ export class SessionManager {
     await Promise.all([...this.sessions.keys()].map((key) => this.close(key)))
   }
 
-  /** Last-resort synchronous cleanup at process exit. */
   killAll(): void {
     for (const session of this.live.values()) session.browser.killNow()
     this.live.clear()

@@ -1,8 +1,5 @@
-// Launches Google Chrome headed on the virtual display, with DevTools over a pipe.
-//
-// We launch Chrome ourselves rather than through Patchright so that every flag is ours: no --enable-automation,
-// no --headless, none of Playwright's automation switches. DevTools goes over --remote-debugging-pipe (fds 3 and
-// 4), never --remote-debugging-port: the port has no authentication, so any local user could take the browser over.
+// Launched by us rather than Patchright, so none of Playwright's automation flags are passed. DevTools goes over a
+// pipe, never a port: the port has no authentication, so any local user could take the browser over.
 import { spawn, type ChildProcess } from "node:child_process"
 import fs from "node:fs"
 import path from "node:path"
@@ -11,35 +8,26 @@ import { debug, log } from "./log.ts"
 
 export type ChromeOptions = {
   readonly executable: string
-  /** DISPLAY and XAUTHORITY of the Xvfb display. */
   readonly display: string
   readonly xauthority: string
-  /** The window's place on the virtual screen: the display's work area, like a maximized window. */
   readonly window: { readonly x: number; readonly y: number; readonly width: number; readonly height: number }
-  /** Private directory for this browser: the profile and a HOME of its own go here. */
   readonly directory: string
   readonly extraArgs?: readonly string[]
-  /** WebGL on the real GPU (on), software (off), or the GPU when a render node is usable (auto, the default). */
   readonly gpu?: Gpu
-  /** Optional `setpriv` that kills Chrome when this process dies, even by SIGKILL. */
   readonly setpriv?: string
 }
 
 export type Chrome = {
   readonly process: ChildProcess
-  /** Chrome reads DevTools commands from here (its fd 3). */
   readonly input: Writable
-  /** Chrome writes DevTools responses and events here (its fd 4). */
   readonly output: Readable
   readonly profile: string
-  /** The last lines Chrome wrote to stderr, for error messages. */
   stderrTail(): string
   readonly exited: Promise<void>
 }
 
 export type Gpu = "auto" | "on" | "off"
 
-/** A GPU render node this process can open, for WebGL on the real GPU. */
 export function renderNode(): string | undefined {
   let names: string[]
   try {
@@ -52,55 +40,44 @@ export function renderNode(): string | undefined {
       fs.accessSync(`/dev/dri/${name}`, fs.constants.R_OK | fs.constants.W_OK)
       return `/dev/dri/${name}`
     } catch {
-      // Not ours to use.
     }
   }
   return undefined
 }
 
-/**
- * Graphics flags. Xvfb has no GPU, and Chrome then turns WebGL off, which is one of the strongest bot signals.
- * With a render node, ANGLE's EGL backend renders on the real GPU (WebGL reports the real card). Without one
- * (a sandbox without /dev/dri), SwiftShader, Chrome's software renderer, at least gives WebGL.
- */
+// On Xvfb Chrome turns WebGL off, a strong bot signal. ANGLE's EGL backend can use the real GPU; SwiftShader is
+// the software fallback.
 export function gpuArgs(gpu: Gpu, hasRenderNode: boolean): string[] {
   if (gpu === "on" || (gpu === "auto" && hasRenderNode)) return ["--use-gl=angle", "--use-angle=gl-egl"]
   return ["--enable-unsafe-swiftshader"]
 }
 
-/** Chrome's command line. Exported for tests. */
 export function chromeArgs(options: Pick<ChromeOptions, "window" | "extraArgs" | "gpu">, profile: string, hasRenderNode = renderNode() !== undefined): string[] {
   return [
     `--user-data-dir=${profile}`,
     "--remote-debugging-pipe",
-    // DevTools over a pipe sets navigator.webdriver; this turns it back off (Patchright's launcher does the same).
-    // Chrome then warns about the flag in an infobar on the startup tab, which AgentBrowser closes.
+    // The pipe sets navigator.webdriver; this unsets it, as Patchright's launcher does.
     "--disable-blink-features=AutomationControlled",
     ...gpuArgs(options.gpu ?? "auto", hasRenderNode),
-    // X11 on the virtual display, never Wayland: on Wayland it would open on the real screen.
+    // On Wayland it would open on the real screen.
     "--ozone-platform=x11",
     `--window-position=${options.window.x},${options.window.y}`,
     `--window-size=${options.window.width},${options.window.height}`,
-    // Housekeeping for a throwaway profile; none of these change what pages see.
     "--no-first-run",
     "--no-default-browser-check",
     "--disable-search-engine-choice-screen",
     "--password-store=basic",
-    // Nobody listens, and it would play through the user's speakers.
     "--mute-audio",
     ...(options.extraArgs ?? []),
     "about:blank",
   ]
 }
 
-/** Chrome's environment: the virtual display only, and nothing of the user's desktop session. */
 export function chromeEnv(base: NodeJS.ProcessEnv, options: Pick<ChromeOptions, "display" | "xauthority">, home: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...base }
-  // Wayland: with these Chrome (or the nixpkgs wrapper's NIXOS_OZONE_WL handling) could open on the real screen.
   for (const name of ["WAYLAND_DISPLAY", "WAYLAND_SOCKET", "NIXOS_OZONE_WL", "XDG_SESSION_TYPE", "XDG_CURRENT_DESKTOP", "XDG_SESSION_DESKTOP", "DESKTOP_SESSION", "HYPRLAND_INSTANCE_SIGNATURE", "GDK_BACKEND", "QT_QPA_PLATFORM"]) delete env[name]
   // The session bus reaches the desktop: notifications, the keyring, portals.
   env.DBUS_SESSION_BUS_ADDRESS = "disabled:"
-  // A HOME of its own, so nothing of the user's (NSS certificate database, config) is read or written.
   for (const name of ["XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"]) delete env[name]
   env.HOME = home
   env.DISPLAY = options.display
@@ -121,7 +98,6 @@ export function launchChrome(options: ChromeOptions): Chrome {
   const child = spawn(command, commandArgs, {
     env: chromeEnv(process.env, options, home),
     cwd: home,
-    // Its own process group, so closing it takes every Chrome process with it.
     detached: true,
     stdio: ["ignore", "ignore", "pipe", "pipe", "pipe"],
   })
@@ -155,7 +131,6 @@ export function launchChrome(options: ChromeOptions): Chrome {
   }
 }
 
-/** Kills Chrome's whole process group: TERM, then KILL if it's still there after `graceMs`. */
 export async function killChrome(chrome: Chrome, graceMs = 3_000): Promise<void> {
   const pid = chrome.process.pid
   if (pid === undefined || chrome.process.exitCode !== null || chrome.process.signalCode !== null) return
@@ -163,7 +138,6 @@ export async function killChrome(chrome: Chrome, graceMs = 3_000): Promise<void>
     try {
       process.kill(-pid, signal)
     } catch {
-      // Already gone.
     }
   }
   signalGroup("SIGTERM")
@@ -172,6 +146,5 @@ export async function killChrome(chrome: Chrome, graceMs = 3_000): Promise<void>
     signalGroup("SIGKILL")
     await chrome.exited
   }
-  // Children (renderers, GPU, zygote) can outlive the browser process for a moment.
   signalGroup("SIGKILL")
 }

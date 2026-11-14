@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-// agent-browser's MCP server over stdio.
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { killSharedDisplayNow, stopSharedDisplay } from "./browser.ts"
 import { loadConfig } from "./config.ts"
@@ -25,27 +24,24 @@ async function shutdown(reason: string, code = 0) {
   process.exit(code)
 }
 
-// Whatever happens, don't leave Chrome running or a profile on disk.
 process.on("exit", () => {
   sessions.killAll()
   killSharedDisplayNow()
   try {
     removeProcessDirectory()
   } catch {
-    // Exiting anyway.
   }
 })
 process.on("SIGINT", () => void shutdown("SIGINT"))
 process.on("SIGTERM", () => void shutdown("SIGTERM"))
 process.on("SIGHUP", () => void shutdown("SIGHUP"))
-// OpenCode closing the connection ends stdin.
 process.stdin.on("end", () => void shutdown("stdin closed"))
 process.on("uncaughtException", (error) => {
   log("server.uncaught", { error: error.stack ?? String(error) })
   void shutdown("uncaught exception", 1)
 })
 process.on("unhandledRejection", (error) => {
-  // Playwright can reject a promise nobody waits for when a page or browser goes away; log it and carry on.
+  // Playwright can reject unawaited promises when a page goes away; not fatal.
   log("server.unhandled-rejection", { error: error instanceof Error ? (error.stack ?? error.message) : String(error) })
 })
 

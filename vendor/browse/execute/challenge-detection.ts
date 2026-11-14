@@ -238,7 +238,7 @@ export function challengeWarning(outcome: ChallengeOutcome): string | undefined 
     }
   })()
   if (outcome.recommendation === "handoff") {
-    // agent-browser change: there's no handoff() (nobody can see the browser), so the agent stops and tells the user.
+    // agent-browser change: there's no handoff().
     return `Blocked by a ${outcome.vendor} ${outcome.kind} challenge on ${where} (${outcome.signal}${outcome.waitedMs > 0 ? `, still there after ${Math.round(outcome.waitedMs / 1000)} s` : ""}). Don't retry, reload or try to solve it: this browser can't pass it. Stop using this site and tell the user, or try another source.`
     // end agent-browser change
   }

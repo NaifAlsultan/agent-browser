@@ -1,4 +1,3 @@
-// The CDP proxy against a fake Chrome: streams in place of the pipe, a ws client in place of Patchright.
 import assert from "node:assert/strict"
 import { PassThrough } from "node:stream"
 import { afterEach, describe, test } from "node:test"
@@ -8,14 +7,13 @@ import { removeDefaultMediaEmulation, TargetTracker } from "../../src/cdp-rewrit
 
 type Message = { id?: number; method?: string; params?: Record<string, unknown>; sessionId?: string; result?: unknown }
 
-/** A pretend Chrome on the other end of the pipe: records commands, answers through `reply`. */
 class FakeChrome {
   readonly toChrome = new PassThrough()
   readonly fromChrome = new PassThrough()
   readonly received: Message[] = []
   private buffer = ""
   private waiters: Array<() => void> = []
-  /** Answers each command; return undefined to answer `{}`, or "none" to not answer. */
+  /** Return "none" to not answer. */
   responder: (message: Message) => unknown = () => ({})
 
   constructor() {
@@ -52,7 +50,6 @@ class FakeChrome {
   }
 }
 
-/** A connected client, as Patchright would be. */
 async function connect(proxy: CdpProxy) {
   const socket = new WebSocket(await proxy.listen())
   const received: Message[] = []
@@ -204,7 +201,6 @@ describe("CdpProxy", () => {
     const order = chrome.received.filter((message) => message.sessionId === "PAGE").map((message) => message.id)
     const moveIndex = order.indexOf(10)
     const pressIndex = order.indexOf(11)
-    // Proxy-generated pointer samples came first, then Patchright's commands in their original order.
     const path = chrome.received.filter((message) => message.method === "Input.dispatchMouseEvent" && message.id! >= 1_900_000_000)
     assert.ok(path.length > 3, `expected a path of moves, got ${path.length}`)
     assert.ok(order.indexOf(path[0]!.id!) < moveIndex)
@@ -212,9 +208,7 @@ describe("CdpProxy", () => {
     const move = chrome.received.find((message) => message.id === 10)!
     const press = chrome.received.find((message) => message.id === 11)!
     assert.ok(Math.abs(Number(move.params!.x) - 600) < 8 && Math.abs(Number(move.params!.y) - 400) < 8)
-    // Press and move land on the same jittered point.
     assert.deepEqual([press.params!.x, press.params!.y], [move.params!.x, move.params!.y])
-    // Patchright only sees replies to its own commands.
     assert.deepEqual(client.received.filter((message) => message.id !== undefined).map((message) => message.id).sort(), [10, 11, 12])
   })
 
@@ -237,7 +231,6 @@ describe("CdpProxy", () => {
     chrome.responder = (message) => {
       if (message.method !== "Page.captureScreenshot") return {}
       if (message.id === 30) return "none"
-      // The second nudge releases the original.
       if (chrome.received.filter((m) => m.method === "Page.captureScreenshot").length >= 3 && stalled) {
         stalled = false
         chrome.send({ id: 30, sessionId: "PAGE", result: { data: "original" } })
@@ -251,7 +244,6 @@ describe("CdpProxy", () => {
     assert.equal(nudge.params!.format, "jpeg")
     assert.deepEqual(nudge.params!.clip, { x: 0, y: 0, width: 10, height: 10, scale: 1 })
     assert.equal("captureBeyondViewport" in nudge.params!, false)
-    // Nudges stop once it's answered.
     const count = chrome.received.length
     await new Promise((resolve) => setTimeout(resolve, 600))
     assert.equal(chrome.received.length, count)
@@ -278,12 +270,10 @@ describe("CdpProxy", () => {
     assert.equal(chrome.received.find((message) => message.id === 40)!.params!.worldName, "utility")
 
     chrome.send({ method: "Page.frameNavigated", sessionId: "PAGE", params: { frame: { id: "MAIN", url: "https://a.example/" }, type: "BackForwardCacheRestore" } })
-    // Something Chrome sends meanwhile waits until the frames are announced.
     chrome.send({ method: "Page.lifecycleEvent", sessionId: "PAGE", params: { frameId: "MAIN", name: "load" } })
     await client.until((message) => message.method === "Page.lifecycleEvent")
     const events = client.received.map((message) => `${message.method}${message.sessionId ? `@${message.sessionId}` : ""}${message.method === "Page.frameAttached" ? `:${message.params!.frameId}` : ""}`)
     const restore = events.indexOf("Page.frameNavigated@PAGE")
-    // Chrome's own messages keep their order, after the frames the proxy announced.
     assert.deepEqual(events.slice(restore), [
       "Page.frameNavigated@PAGE",
       "Page.frameAttached@PAGE:SAME",
@@ -293,7 +283,6 @@ describe("CdpProxy", () => {
       "Target.attachedToTarget@PAGE",
     ])
     assert.ok(chrome.received.some((message) => message.method === "Target.detachFromTarget" && message.params!.sessionId === "OLDFRAME"))
-    // The same isolated world would carry refs from before the restore; Patchright gets a new one.
     client.send({ id: 41, method: "Page.createIsolatedWorld", sessionId: "PAGE", params: { frameId: "MAIN", worldName: "utility" } })
     await chrome.waitFor((message) => message.id === 41)
     assert.equal(chrome.received.find((message) => message.id === 41)!.params!.worldName, "utility:1")

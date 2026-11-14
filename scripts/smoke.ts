@@ -1,5 +1,4 @@
-// Launches one browser the way the server does and prints what a page sees. Run in the dev shell:
-//   node scripts/smoke.ts [url]
+// Prints what a page sees of the browser. In the dev shell: node scripts/smoke.ts [url]
 import { AgentBrowser, stopSharedDisplay } from "../src/browser.ts"
 import { loadConfig } from "../src/config.ts"
 import { removeProcessDirectory } from "../src/temp.ts"
@@ -9,7 +8,6 @@ const browser = await AgentBrowser.launch(config, "smoke")
 try {
   const page = browser.context.pages()[0] ?? (await browser.context.newPage())
   await page.goto(process.argv[2] ?? "data:text/html,<title>smoke</title><h1>hello</h1>")
-  // Main world (isolatedContext = false): what the page's own scripts see.
   const seen = await page.evaluate(() => {
     const canvas = document.createElement("canvas")
     const gl = canvas.getContext("webgl") as WebGLRenderingContext | null
@@ -34,7 +32,7 @@ try {
     }
   }, undefined, undefined, false)
   console.log(JSON.stringify(seen, null, 2))
-  // SMOKE_XSHOT=file.png: grab the whole virtual screen, browser UI included (needs xwd and ImageMagick on PATH).
+  // SMOKE_XSHOT=file.png grabs the whole virtual screen (needs xwd and ImageMagick).
   if (process.env.SMOKE_XSHOT) {
     const { execFileSync } = await import("node:child_process")
     const { sharedDisplay } = await import("../src/browser.ts")

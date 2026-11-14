@@ -1,6 +1,5 @@
-// Compares agent-browser with plain Playwright on public bot-detection pages. Run in the dev shell:
+// Compares agent-browser with plain Playwright on public bot-detection pages. In the dev shell:
 //   node scripts/detection-compare.ts <out-dir> [ours|playwright-headless|playwright-xvfb ...]
-// Writes a full-page screenshot per site and setup, and prints what each page reports.
 import fs from "node:fs"
 import path from "node:path"
 import { chromium as playwright, type Page as PlaywrightPage } from "playwright-core"
@@ -11,7 +10,6 @@ import { removeProcessDirectory } from "../src/temp.ts"
 type AnyPage = PlaywrightPage | import("../src/patchright.ts").Page
 type Site = { name: string; url: string; settleMs: number; read: string }
 
-// Readers run as page functions; kept as source so both Playwright and Patchright can evaluate them.
 const sites: Site[] = [
   {
     name: "sannysoft",
@@ -67,14 +65,12 @@ async function visit(page: AnyPage, site: Site, out: string, setup: string) {
   const started = Date.now()
   try {
     await page.goto(site.url, { waitUntil: "load", timeout: 60_000 })
-    // Some checks react to a person being there: move the mouse a little and scroll.
     await page.mouse.move(400 + Math.random() * 200, 300 + Math.random() * 100)
     await page.mouse.move(700, 450)
     await page.waitForTimeout(site.settleMs)
     await page.mouse.wheel(0, 400)
     await page.waitForTimeout(1_000)
     await page.screenshot({ path: path.join(out, `${setup}-${site.name}.png`), fullPage: true, timeout: 30_000 }).catch((error: unknown) => console.error(`screenshot failed: ${error}`))
-    // Playwright evaluates in the main world. Patchright in an isolated one, which pages can't see (its default).
     const result = await (page as PlaywrightPage).evaluate(site.read)
     return { setup, site: site.name, ms: Date.now() - started, result }
   } catch (error) {
@@ -98,7 +94,6 @@ for (const setup of setups) {
       await browser.close()
     }
   } else {
-    // Plain Playwright with its bundled Chromium, as Playwright MCP launches it (headless by default, or headed).
     const headless = setup === "playwright-headless"
     const env: Record<string, string> = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined))
     if (!headless) {

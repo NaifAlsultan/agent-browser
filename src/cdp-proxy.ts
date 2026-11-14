@@ -1,12 +1,3 @@
-// An in-process DevTools proxy between Patchright and Chrome.
-//
-// Chrome speaks CDP over its pipe (NUL-separated JSON on fds 3 and 4); Patchright connects to this proxy with
-// connectOverCDP over a loopback WebSocket whose path holds a random secret. On the way to Chrome the proxy:
-//
-// - drops Patchright's forced media emulation (see cdp-rewrite.ts), and
-// - runs browse's human-like input before mouse, keyboard and scroll-into-view commands: a curved pointer path
-//   before a click, paced key presses, wheel scrolling instead of a jump. Commands on one DevTools session keep
-//   their order: anything Patchright sends after an input command waits for that command to go out.
 import crypto from "node:crypto"
 import type { IncomingMessage } from "node:http"
 import type { AddressInfo } from "node:net"
@@ -17,7 +8,7 @@ import type { JsonObject } from "../vendor/browse/protocol.ts"
 import { humanInputMethods, removeDefaultMediaEmulation, TargetTracker, type CdpCommand, type CdpMessage } from "./cdp-rewrite.ts"
 import { debug, log } from "./log.ts"
 
-/** Ids of the proxy's own commands start here, far above anything Patchright reaches. CDP ids are 32-bit. */
+// Far above Patchright's ids; CDP ids are 32-bit.
 const ownIdBase = 1_900_000_000
 const maxPayload = 256 * 1024 * 1024
 
@@ -33,11 +24,8 @@ async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 }
 
 export type CdpProxyOptions = {
-  /** Chrome's fd 3: commands go here. */
   readonly toChrome: Writable
-  /** Chrome's fd 4: responses and events come from here. */
   readonly fromChrome: Readable
-  /** Whether to apply human-like input (default: on). */
   readonly humanInput?: boolean
 }
 
@@ -64,7 +52,6 @@ export class CdpProxy {
     options.toChrome.on("error", () => this.chromeGone())
   }
 
-  /** Starts listening; resolves to the ws:// endpoint for connectOverCDP. */
   async listen(): Promise<string> {
     if (this.endpoint) return this.endpoint
     const secret = crypto.randomBytes(24).toString("hex")
@@ -75,7 +62,7 @@ export class CdpProxy {
       path,
       maxPayload,
       perMessageDeflate: false,
-      // Only one client (our Patchright), and never a web page: browsers always send Origin.
+      // Browsers always send Origin, so this also refuses web pages.
       verifyClient: ({ req }: { req: IncomingMessage }) => this.client === undefined && req.headers.origin === undefined,
     })
     this.server = server
@@ -89,7 +76,6 @@ export class CdpProxy {
     return this.endpoint
   }
 
-  /** Sends a command to Chrome from the proxy itself (not from Patchright) and waits for the result. */
   call(sessionId: string | undefined, method: string, params: Record<string, unknown> = {}): Promise<unknown> {
     if (this.chromeClosed) return Promise.reject(new Error("Chrome is gone"))
     const id = this.nextId++
@@ -141,7 +127,7 @@ export class CdpProxy {
     }
     const run = (queue ?? Promise.resolve()).then(async () => {
       if (paced) await this.pace(rewritten)
-      // Pacing may adjust the command (a click lands a few pixels off center), so serialize it afterwards.
+      // Pacing may move the click's coordinates, so serialize afterwards.
       this.writeChrome(JSON.stringify(rewritten))
     })
     const tail = run.catch((error: unknown) => debug("proxy.pace-failed", { error: String(error) }))
@@ -151,17 +137,11 @@ export class CdpProxy {
     })
   }
 
-  /**
-   * After human-like scrolling, Page.captureScreenshot on the virtual display often stalls for ~15 s (the page itself
-   * keeps rendering: requestAnimationFrame stays prompt, so pages see nothing). Another capture releases it (browse's relay does the same for hidden tabs:
-   * captureScreenshotNudged in cli/src/relay/cdp-dispatch.ts). Chrome answers every pending capture with the
-   * surface at the size the original asked for, so the nudge keeps the clip and only changes the encoding; with a
-   * clip, captureBeyondViewport is dropped so the nudge doesn't re-apply full-page settings.
-   */
+  // After human-like scrolling, captures often stall for ~15 s until another capture releases them (as in browse's
+  // captureScreenshotNudged). The nudge keeps the clip, so Chrome answers the original at its own size.
   private nudgeScreenshot(command: CdpCommand) {
     const params: Record<string, unknown> = { ...command.params, format: "jpeg", quality: 1 }
     if (params.clip !== undefined) delete params.captureBeyondViewport
-    // Measured on Chrome 157: a nudge every 250 ms releases a stalled capture in well under a second.
     const delays = [...Array<number>(12).fill(250), 500, 1_000, 2_000, 4_000]
     const done = () => !this.screenshotsPending.has(command.id) || this.chromeClosed
     this.screenshotsPending.add(command.id)
@@ -207,7 +187,6 @@ export class CdpProxy {
   }
 
   private fromChrome(text: string) {
-    // Only parse what the proxy needs: replies to its own commands, and target attach/detach events.
     const idMatch = /^\{"id":(\d+)/.exec(text)
     if (idMatch && this.screenshotsPending.size) this.screenshotsPending.delete(Number(idMatch[1]))
     if (idMatch && Number(idMatch[1]) >= ownIdBase) {
@@ -222,7 +201,6 @@ export class CdpProxy {
       try {
         for (const page of this.tracker.observe(JSON.parse(text) as CdpMessage)) forgetTab(page)
       } catch {
-        // Not JSON: forwarded as is, Patchright reports it.
       }
     }
     if (this.held) {
@@ -240,15 +218,10 @@ export class CdpProxy {
     }
   }
 
-  /** Per tab: how many times it was restored from the back/forward cache (see freshWorld). */
   private readonly worldGenerations = new Map<number, number>()
 
-  /**
-   * A restored page keeps its documents, and with them Patchright's isolated world and what Patchright stored on
-   * elements there: element refs carry the number of the frame they were made in, which changes when Patchright
-   * sees the frame again, so cached refs in a restored iframe would point at a frame that no longer exists. After a
-   * restore, Patchright gets a fresh isolated world (another world name; pages can't see isolated worlds).
-   */
+  // A bfcache-restored page keeps Patchright's isolated world, where elements cache refs naming their old frame
+  // number. A new world name gives Patchright a clean one.
   private freshWorld(command: CdpCommand): CdpCommand {
     const page = this.tracker.pageNumber(command.sessionId)
     const generation = page === undefined ? 0 : (this.worldGenerations.get(page) ?? 0)
@@ -257,17 +230,11 @@ export class CdpProxy {
     return { ...command, params: { ...command.params, worldName: `${name}:${generation}` } }
   }
 
-  /** Messages from Chrome held back while frames are announced again (see replayRestoredFrames). */
   private held: string[] | undefined
 
-  /**
-   * A page restored from the back/forward cache keeps its iframes, but Chrome doesn't announce them again, and
-   * Patchright forgets every child frame when the main frame navigates. Its iframes would then be invisible to
-   * snapshots and actions. (Stock Playwright avoids this by turning the cache off, which sites can detect.) So,
-   * like browse's relay does after reconnects (replayChildTargetsForParent in cli/src/cdp/shims.ts), tell
-   * Patchright about them again: same-process frames as frameAttached + frameNavigated, out-of-process iframes as
-   * a fresh attach of their existing session. Other messages from Chrome wait until that's done.
-   */
+  // On a bfcache restore Chrome doesn't announce the page's iframes again, and Patchright drops them. Playwright
+  // avoids this by disabling the cache, which sites can detect; instead, re-announce the frames (like browse's
+  // replayChildTargetsForParent) and hold Chrome's other messages until done.
   private async replayRestoredFrames(sessionId: string) {
     this.held ??= []
     try {
@@ -300,9 +267,7 @@ export class CdpProxy {
     }
     walk(frameTree)
     for (const child of outOfProcess) {
-      // Patchright needs the frame before the iframe's target; then a fresh session for the target (reusing the old
-      // session id would mix up replies to commands sent on it before), which Patchright sets up by itself. Chrome
-      // sends the detach and attach events; they're held until this is done, so they land after frameAttached.
+      // A fresh session: reusing the old id would mix up replies to commands sent on it before.
       const targetInfo = (child.attachParams.targetInfo ?? {}) as { parentFrameId?: string }
       this.event("Page.frameAttached", { frameId: child.targetId, parentFrameId: targetInfo.parentFrameId ?? frameTree.frame.id }, sessionId)
       await this.call(sessionId, "Target.detachFromTarget", { sessionId: child.sessionId }).catch(() => undefined)
@@ -317,7 +282,6 @@ export class CdpProxy {
     for (const { reject } of this.pending.values()) reject(new Error("Chrome is gone"))
     this.pending.clear()
     log("proxy.chrome-disconnected")
-    // Patchright sees the browser disconnect.
     this.client?.close(1000, "browser closed")
   }
 }

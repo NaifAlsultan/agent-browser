@@ -1,5 +1,3 @@
-// One browser: a Chrome process with a fresh profile on the shared virtual display, the DevTools proxy in front of
-// it, and Patchright connected through the proxy. Closing it kills Chrome and deletes the profile.
 import fs from "node:fs"
 import { CdpProxy } from "./cdp-proxy.ts"
 import { killChrome, launchChrome, type Chrome } from "./chrome.ts"
@@ -10,15 +8,10 @@ import { makeDirectory, processDirectory, recordDisplay } from "./temp.ts"
 import { startXvfb, type Display } from "./xvfb.ts"
 
 let display: Promise<Display> | undefined
-/** The started Xvfb, for synchronous cleanup. */
 let running: Display | undefined
 let policiesChecked = false
 
-/**
- * Google Chrome applies the machine's managed policies from /etc/opt/chrome/policies to every profile, ours
- * included: force-installed extensions, blocked cookies and the like change what sites see. (NixOS's
- * programs.chromium writes its policies there as well as for Chromium.) There's no flag to turn that off, so say so.
- */
+// Chrome applies /etc/opt/chrome/policies to every profile and has no flag to ignore them.
 function warnAboutPolicies() {
   if (policiesChecked) return
   policiesChecked = true
@@ -35,7 +28,6 @@ function warnAboutPolicies() {
   }
 }
 
-/** The process's Xvfb, started on first use (and again if it died). */
 export function sharedDisplay(config: Config): Promise<Display> {
   if (!display) {
     const starting = startXvfb({
@@ -64,10 +56,7 @@ export function sharedDisplay(config: Config): Promise<Display> {
   return display
 }
 
-/**
- * Stops the process's Xvfb and waits (up to `waitMs`) for it to exit. Exiting before it does would let setpriv's
- * death signal kill it before it removes its socket and lock files.
- */
+// Waits for Xvfb to exit, or setpriv's death signal kills it before it removes its socket and lock.
 export async function stopSharedDisplay(waitMs = 3_000): Promise<void> {
   const current = display
   display = undefined
@@ -78,17 +67,13 @@ export async function stopSharedDisplay(waitMs = 3_000): Promise<void> {
   await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, waitMs).unref())])
 }
 
-/** Synchronous last resort at exit: Xvfb gets no chance to clean up, the next server does it (see temp.ts). */
 export function killSharedDisplayNow(): void {
   running?.process.kill("SIGKILL")
 }
 
 type TargetInfo = { targetId: string; type: string }
 
-/**
- * Chrome shows its "unsupported command-line flag" infobar (see chromeArgs) on the startup tab only, where it
- * shrinks the viewport. Before Patchright connects, open a fresh tab and close the startup one.
- */
+// The "unsupported command-line flag" infobar only appears on the startup tab, where it shrinks the viewport.
 async function replaceStartupTab(proxy: CdpProxy): Promise<void> {
   const pages = async () => ((await proxy.call(undefined, "Target.getTargets")) as { targetInfos: TargetInfo[] }).targetInfos.filter((target) => target.type === "page")
   let startup: TargetInfo[] = []
@@ -115,7 +100,6 @@ export class AgentBrowser {
     this.directory = directory
   }
 
-  /** Whether Chrome still runs and Patchright is connected. */
   get connected(): boolean {
     return this.browser.isConnected() && this.chrome.process.exitCode === null && this.chrome.process.signalCode === null
   }
@@ -145,7 +129,6 @@ export class AgentBrowser {
       const endpoint = await proxy.listen()
       const browser = await Promise.race([chromium.connectOverCDP(endpoint, { timeout: 30_000 }), exitedEarly])
       exitedEarly.catch(() => undefined)
-      // The default context is the profile itself (not an incognito-style context, which sites can detect).
       const context = browser.contexts()[0]
       if (!context) throw new Error("Chrome has no default browser context")
       context.setDefaultTimeout(config.actionTimeoutMs)
@@ -163,15 +146,12 @@ export class AgentBrowser {
 
   private closing: Promise<void> | undefined
 
-  /** Closes Chrome and deletes its profile. Safe to call more than once. */
   close(): Promise<void> {
     this.closing ??= (async () => {
-      // Ask Chrome to quit cleanly first; it then exits by itself, and the group kill below is a backstop.
       await Promise.race([this.proxy.call(undefined, "Browser.close").catch(() => undefined), new Promise((resolve) => setTimeout(resolve, 2_000).unref())])
       await this.browser.close().catch(() => undefined)
       await this.proxy.close().catch(() => undefined)
       await killChrome(this.chrome).catch(() => undefined)
-      // Chrome's last writes can land just after it exits; retry the removal briefly.
       for (let attempt = 0; attempt < 5; attempt++) {
         try {
           fs.rmSync(this.directory, { recursive: true, force: true })
@@ -185,7 +165,6 @@ export class AgentBrowser {
     return this.closing
   }
 
-  /** Synchronous last-resort cleanup for process exit. */
   killNow(): void {
     try {
       if (this.chrome.process.pid) process.kill(-this.chrome.process.pid, "SIGKILL")

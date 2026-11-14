@@ -1,7 +1,6 @@
-// Drives the MCP server from the command line, for trying tools by hand. Run in the dev shell:
-//   node scripts/mcp-call.ts '[["open", {"url": "example.com"}], ["snapshot", {}]]'
-// Each step is [tool, arguments] or [tool, arguments, sessionID]. Images are summarized, not printed.
-// MCP_SERVER=path runs that executable (for example ./result/bin/agent-browser) instead of src/main.ts.
+// Calls the server's tools by hand. In the dev shell:
+//   node scripts/mcp-call.ts '[["open", {"url": "example.com"}], ["snapshot", {}, "optional-session-id"]]'
+// MCP_SERVER=./result/bin/agent-browser runs the built package instead of src/main.ts.
 import path from "node:path"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"

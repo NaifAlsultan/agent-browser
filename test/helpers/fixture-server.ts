@@ -1,5 +1,4 @@
-// Serves test/fixtures over HTTP on 127.0.0.1. Any other path answers with a page echoing the request, so form
-// submissions (GET /submitted?...) can be checked.
+// Unknown paths echo the request, so form submissions can be checked.
 import fs from "node:fs"
 import http from "node:http"
 import type { AddressInfo } from "node:net"

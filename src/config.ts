@@ -1,5 +1,3 @@
-// Settings, all from environment variables. The Nix package bakes in the Chrome and Xvfb paths as defaults.
-
 function integer(name: string, fallback: number, min: number, max: number): number {
   const raw = process.env[name]?.trim()
   if (!raw) return fallback
@@ -20,31 +18,18 @@ function screen(): { width: number; height: number } {
 }
 
 export type Config = {
-  /** Google Chrome executable (the nixpkgs wrapper, google-chrome-stable). */
   readonly chrome: string
-  /** Xvfb executable. */
   readonly xvfb: string
-  /** Virtual screen size; Chrome's window fills it. */
   readonly screen: { readonly width: number; readonly height: number }
-  /** Close a session's browser after this long without a tool call. */
   readonly idleTimeoutMs: number
-  /** Default timeout of actions (click, fill, ...). */
   readonly actionTimeoutMs: number
-  /** Default timeout of navigations. */
   readonly navigationTimeoutMs: number
-  /** How long to wait for a non-interactive bot check (Cloudflare "Just a moment...") to clear. */
   readonly challengeWaitMs: number
-  /** Extra Chrome flags, for example --no-sandbox where user namespaces aren't available. */
   readonly extraChromeArgs: readonly string[]
-  /** Parent directory of the per-process temporary directory (profiles, X authority). */
   readonly tmpDir: string | undefined
-  /** util-linux setpriv, used to kill Xvfb and Chrome if this process dies without cleaning up. Optional. */
   readonly setpriv: string | undefined
-  /** xprop, used to give the virtual screen a desktop work area (a panel). Optional. */
   readonly xprop: string | undefined
-  /** browse's human-like mouse, keyboard and scrolling. */
   readonly humanInput: boolean
-  /** WebGL on the real GPU: auto (when /dev/dri has a usable render node), on, or off (software). */
   readonly gpu: "auto" | "on" | "off"
 }
 

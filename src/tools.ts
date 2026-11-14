@@ -1,5 +1,3 @@
-// The MCP tools. Each call runs in the calling OpenCode session's browser (see session.ts). Results describe the
-// page afterwards (title and URL), anything that happened (dialogs, new tabs) and any bot challenge.
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
 import { z } from "zod"
@@ -20,7 +18,6 @@ export function sessionKeyOf(extra: Extra | undefined): string {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
-/** Error text for the agent: Playwright's message without its long call log. */
 export function errorText(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error)
   const lines = message.split("\n")
@@ -29,7 +26,6 @@ export function errorText(error: unknown): string {
   return kept.length > 2_000 ? `${kept.slice(0, 2_000)}...` : kept
 }
 
-/** Normalizes what an agent passes as a URL: a bare host gets https://. */
 export function normalizeUrl(input: string): string {
   const url = input.trim()
   if (/^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?([/?#]|$)/i.test(url)) return `http://${url}`
@@ -47,7 +43,6 @@ export class Tools {
     this.sessions = sessions
   }
 
-  /** Runs one tool call in the caller's session and turns its outcome into a tool result. */
   private async call(extra: Extra | undefined, body: (session: Session) => Promise<CallToolResult | string>): Promise<CallToolResult> {
     try {
       return await this.sessions.use(sessionKeyOf(extra), async (session) => {
@@ -59,7 +54,7 @@ export class Tools {
     }
   }
 
-  /** A ref from the latest snapshot, checked to exist so a stale ref fails fast instead of timing out. */
+  // Checked up front, so a stale ref fails fast instead of timing out.
   private async ref(page: Page, ref: string): Promise<Locator> {
     const locator = locateRef(page, ref)
     const count = await locator.count().catch(() => 0)
@@ -67,10 +62,6 @@ export class Tools {
     return locator
   }
 
-  /**
-   * Runs an action that may navigate or open tabs, then waits for the page to settle: for a navigation it started,
-   * the new page's load (bounded); for a new tab, switches to it.
-   */
   private async act(session: Session, action: (page: Page) => Promise<string | void>): Promise<string> {
     const page = await session.ensurePage()
     session.takeOpenedPages()
@@ -82,7 +73,7 @@ export class Tools {
     let summary: string | void
     try {
       summary = await action(page)
-      // A click can start a navigation a moment later (event handlers, form validation).
+      // A click can start a navigation a moment later.
       if (!navigated) await sleep(300)
     } finally {
       page.off("framenavigated", onNavigated)
@@ -100,11 +91,7 @@ export class Tools {
     return this.describe(session, [summary ?? "", ...notes])
   }
 
-  /**
-   * Waits (bounded) for the page's document to finish loading. This polls document.readyState rather than waiting
-   * for load events, because a page restored from the back/forward cache never fires them and Patchright's own
-   * waits then hang. (Stock Playwright turns the cache off with --disable-back-forward-cache; sites can tell.)
-   */
+  // Polls readyState: a page restored from the back/forward cache fires no load events, so Patchright's waits hang.
   private async settle(page: Page, timeoutMs = 8_000) {
     const deadline = Date.now() + timeoutMs
     while (Date.now() < deadline && !page.isClosed()) {
@@ -114,7 +101,6 @@ export class Tools {
     }
   }
 
-  /** Goes back or forward in the tab's history; false when there's no entry that way. */
   private async traverse(page: Page, delta: -1 | 1): Promise<boolean> {
     const cdp = await page.context().newCDPSession(page)
     try {
@@ -124,13 +110,11 @@ export class Tools {
     } finally {
       await cdp.detach().catch(() => undefined)
     }
-    // "commit": a page restored from the back/forward cache fires no load events (see settle).
     if (delta < 0) await page.goBack({ waitUntil: "commit" })
     else await page.goForward({ waitUntil: "commit" })
     return true
   }
 
-  /** The page's state after a call: title and URL, events since the last call, and any bot challenge. */
   private async describe(session: Session, lines: string[] = []): Promise<string> {
     const page = await session.ensurePage()
     const challenge = challengeNote(await detectChallenge(page, this.config.challengeWaitMs))
@@ -143,7 +127,6 @@ export class Tools {
     return out.join("\n")
   }
 
-  /** Puts the pointer somewhere plausible on the page before the first wheel scroll there. */
   private async placePointer(session: Session, page: Page) {
     if (session.pointerPlaced.has(page)) return
     const size = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }))
@@ -151,7 +134,6 @@ export class Tools {
     session.pointerPlaced.add(page)
   }
 
-  /** Replaces a field's text by typing it, the way a person does. */
   private async typeInto(session: Session, page: Page, locator: Locator, text: string) {
     await locator.click()
     session.pointerPlaced.add(page)
@@ -163,7 +145,7 @@ export class Tools {
       await page.keyboard.press("ControlOrMeta+A")
       await page.keyboard.press("Backspace")
     }
-    // Typing goes key by key with human pacing (about 15 keys a second); very long text is inserted at once.
+    // Human pacing types about 15 keys a second; very long text is inserted at once.
     if (text.length > 400) await page.keyboard.insertText(text)
     else await locator.pressSequentially(text)
   }

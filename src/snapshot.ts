@@ -1,15 +1,11 @@
-// The page outline agents read: Playwright's AI-mode ARIA snapshot (element refs like [ref=e5], iframes included,
-// refs from iframes look like f1e3), with the values of secret fields hidden.
 import type { Locator, Page } from "./patchright.ts"
 
 export const redacted = "[hidden]"
 
-/** Roles whose snapshot line can end in the field's value. */
 const valueRoles = /^(\s*- )(textbox|searchbox|combobox|spinbutton)\b/
 
 type ValueLine = { index: number; ref: string; blockEnd: number }
 
-/** Lines showing a form field's value, with the ref of the field. Exported for tests. */
 export function valueLines(lines: readonly string[]): ValueLine[] {
   const found: ValueLine[] = []
   for (let index = 0; index < lines.length; index++) {
@@ -18,7 +14,6 @@ export function valueLines(lines: readonly string[]): ValueLine[] {
     const match = /\[ref=([A-Za-z0-9]+)\][^:]*: (.*)$/.exec(line)
     if (!match) continue
     let blockEnd = index
-    // A multi-line value is a YAML block scalar: `: |` followed by more-indented lines.
     if (/^[|>][-+]?$/.test(match[2]!.trim())) {
       const indent = line.length - line.trimStart().length
       while (blockEnd + 1 < lines.length) {
@@ -32,7 +27,6 @@ export function valueLines(lines: readonly string[]): ValueLine[] {
   return found
 }
 
-/** Replaces the values on the given lines. Exported for tests. */
 export function redactLines(lines: readonly string[], secret: readonly ValueLine[]): string[] {
   const out = [...lines]
   const drop = new Set<number>()
@@ -43,10 +37,7 @@ export function redactLines(lines: readonly string[], secret: readonly ValueLine
   return out.filter((_, index) => !drop.has(index))
 }
 
-/**
- * Whether a field holds a secret: passwords, one-time codes and payment card details. Runs in the page (in
- * Patchright's isolated world), so it must stay self-contained.
- */
+// Runs in the page, so it must stay self-contained.
 export const isSecretField = (element: Element): boolean => {
   if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement)) return false
   if (element instanceof HTMLInputElement && element.type === "password") return true
@@ -58,15 +49,12 @@ export const isSecretField = (element: Element): boolean => {
 }
 
 export type SnapshotOptions = {
-  /** Only this element's subtree. */
   readonly ref?: string
-  /** Cut the outline after this many characters. */
   readonly maxChars?: number
 }
 
 export const defaultMaxChars = 40_000
 
-/** Resolves an element ref from the latest snapshot. */
 export function locateRef(page: Page, ref: string): Locator {
   if (!/^(f\d+)?e\d+$/.test(ref)) throw new Error(`"${ref}" isn't an element ref. Refs look like e12 or f1e3 and come from the latest snapshot.`)
   return page.getByRef(ref)

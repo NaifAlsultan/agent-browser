@@ -12,7 +12,6 @@
         system:
         import nixpkgs {
           inherit system;
-          # Google Chrome is unfree; allow just that.
           config.allowUnfreePredicate = pkg: nixpkgs.lib.getName pkg == "google-chrome";
         };
     in
@@ -22,8 +21,7 @@
         default = agent-browser;
       });
 
-      # The package runs the type check and unit tests while it builds. The integration tests need a display
-      # and Chrome, so they run in the dev shell instead: npm run test:integration.
+      # Unit tests run in the package's check phase; integration tests need a display (npm run test:integration).
       checks = forAllSystems (pkgs: {
         unit = self.packages.${pkgs.stdenv.hostPlatform.system}.agent-browser;
       });
@@ -41,7 +39,7 @@
           AGENT_BROWSER_XVFB = "${pkgs.xvfb}/bin/Xvfb";
           AGENT_BROWSER_SETPRIV = "${pkgs.util-linux}/bin/setpriv";
           AGENT_BROWSER_XPROP = "${pkgs.xprop}/bin/xprop";
-          # Stock Playwright's Chromium, for comparing against plain Playwright (scripts/detection-compare.ts).
+          # For scripts/detection-compare.ts.
           PLAYWRIGHT_BROWSERS_PATH = "${pkgs.playwright-driver.browsers}";
         };
       });

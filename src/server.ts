@@ -6,7 +6,6 @@ import { Tools } from "./tools.ts"
 export const serverName = "agent-browser"
 export const serverVersion = "0.1.0"
 
-// Sent in the initialize response; OpenCode adds it to the system prompt.
 export const instructions = `agent-browser is a web browser for visiting sites, searching, reading pages and filling forms. It's a real Google Chrome that runs in the background (nobody sees it), with a fresh profile for this session: no logins, cookies or history of the user's. Its profile is deleted when the session closes it, after 15 minutes without a call, or when OpenCode exits.
 
 How to use it:
