@@ -9,7 +9,7 @@ import { chromeArgs, chromeEnv, gpuArgs } from "../../src/chrome.ts"
 import { loadConfig } from "../../src/config.ts"
 import { redacted, redactLines, valueLines } from "../../src/snapshot.ts"
 import { removeStaleDirectories, removeStaleDisplay } from "../../src/temp.ts"
-import { errorText, normalizeUrl, sessionKeyOf } from "../../src/tools.ts"
+import { errorText, sessionKeyOf } from "../../src/tools.ts"
 import { displayInUse, workAreaFor, xauthEntry } from "../../src/xvfb.ts"
 
 describe("snapshot redaction", () => {
@@ -48,17 +48,6 @@ describe("snapshot redaction", () => {
 })
 
 describe("tool helpers", () => {
-  test("normalizeUrl adds a scheme only when there's none", () => {
-    assert.equal(normalizeUrl("example.com"), "https://example.com")
-    assert.equal(normalizeUrl(" example.com/a?b=c "), "https://example.com/a?b=c")
-    assert.equal(normalizeUrl("localhost:3000/x"), "http://localhost:3000/x")
-    assert.equal(normalizeUrl("127.0.0.1:8080"), "http://127.0.0.1:8080")
-    assert.equal(normalizeUrl("example.com:8443/path"), "https://example.com:8443/path")
-    assert.equal(normalizeUrl("http://example.com"), "http://example.com")
-    assert.equal(normalizeUrl("about:blank"), "about:blank")
-    assert.equal(normalizeUrl("data:text/html,hi"), "data:text/html,hi")
-  })
-
   test("sessionKeyOf reads OpenCode's session ID and falls back to one default session", () => {
     assert.equal(sessionKeyOf({ _meta: { "ai.opencode/sessionID": "ses_abc" } }), "ses_abc")
     assert.equal(sessionKeyOf({ _meta: {} }), "default")

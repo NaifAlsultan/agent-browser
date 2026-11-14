@@ -12,7 +12,7 @@ export class Session {
   private current: Page
   private readonly events: string[] = []
   private opened: Page[] = []
-  readonly pointerPlaced = new WeakSet<Page>()
+  readonly state: Record<string, unknown> = {}
   private queue: Promise<unknown> = Promise.resolve()
 
   constructor(key: string, browser: AgentBrowser) {

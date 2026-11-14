@@ -37,25 +37,28 @@ MCP client ─stdio─▶ agent-browser ─▶ Patchright ─ws─▶ CDP proxy 
 
 ## Tools
 
+Like [browse](https://github.com/anomalyco/browse), one tool does the browsing: agents write Playwright code.
+
 | Tool | What it does |
 | --- | --- |
-| `open({ url })` | Open a URL |
-| `back()`, `forward()`, `reload()` | Navigate history |
-| `snapshot({ ref?, maxChars? })` | Page outline with element refs such as `e12`, iframes included; password, one-time-code and card values hidden |
-| `screenshot({ fullPage?, ref? })` | Viewport, full page or one element |
-| `click({ ref, double?, button? })` | Click an element |
-| `type({ ref, text, submit? })` | Type into a field, optionally pressing Enter |
-| `fill_form({ fields: [{ ref, value }] })` | Fill text fields, selects, checkboxes and radios |
-| `select({ ref, values })` | Choose `<select>` options |
-| `press({ key })` | Press a key, such as `Enter` |
-| `hover({ ref })` | Hover over an element |
-| `scroll({ direction?, amount?, ref? })` | Scroll the page, or an element into view |
-| `wait({ text?, textGone?, seconds? })` | Wait for text or a time |
-| `tabs({ action, index?, url? })` | List, open, switch or close tabs |
+| `run({ code, timeoutMs? })` | Run Playwright JavaScript with `page`, `context` and `state` (kept between calls) in scope |
 | `close()` | Close the session's browser and delete its profile |
-| `run_script({ code, timeoutMs? })` | Run Playwright code with `page` and `context` |
 
-`run_script` is not a sandbox: it runs with the server's permissions.
+Helpers in `run`:
+
+- `snapshot({ ref?, maxChars? })`: page outline with element refs such as `e12`, iframes included; password,
+  one-time-code and card values hidden
+- `ref(id)`: a locator for a ref from the latest snapshot
+- `screenshot({ fullPage?, ref? })`: attach a screenshot to the result
+- `log(...)`: add a line to the result
+
+```js
+await page.goto("https://duckduckgo.com/?q=nixos")
+return await snapshot()
+```
+
+Results include the return value, the page's title and URL afterwards, new tabs, accepted dialogs and bot
+challenges. `run` is not a sandbox: it runs with the server's permissions.
 
 Sessions are keyed by OpenCode's `ai.opencode/sessionID` request metadata; other clients share one session per
 server process.
