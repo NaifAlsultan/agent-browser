@@ -163,10 +163,21 @@ describe("agent-browser over MCP", { skip, timeout: 300_000 }, () => {
     assert.match(await run("return context.pages().length"), /Returned:\n1/)
   })
 
-  test("accepts dialogs and says so", async () => {
+  test("dismisses dialogs and says so", async () => {
     const result = await run(`await page.goto(${JSON.stringify(`${fixtures.url}/popup.html`)}); await page.getByRole("button", { name: "Delete" }).click(); return await page.locator("#answer").textContent()`)
-    assert.match(result, /Returned:\nconfirmed/)
-    assert.match(result, /confirm dialog said "Delete everything\?"; it was accepted/)
+    assert.match(result, /Returned:\ncancelled/)
+    assert.match(result, /confirm dialog said "Delete everything\?"; it was dismissed/)
+  })
+
+  test("an action on a ref that's gone fails after a short grace, not the action timeout", async () => {
+    await run(`await page.goto(${JSON.stringify(`${fixtures.url}/form.html`)})`)
+    const button = refOf(await run("return await snapshot()"), /button "Create account"/)
+    const started = Date.now()
+    const result = await call("run", { code: `await page.evaluate(() => document.querySelector("button[type=submit]").remove()); await ref("${button}").click()` })
+    assert.ok(result.isError)
+    assert.match(text(result), new RegExp(`Ref ${button} no longer matches an element`))
+    assert.ok(Date.now() - started < 10_000, `took ${Date.now() - started} ms`)
+    assert.match(await run(`return await ref("${button}").count()`), /Returned:\n0/)
   })
 
   test("waits out a self-clearing bot check", async () => {
@@ -185,12 +196,14 @@ describe("agent-browser over MCP", { skip, timeout: 300_000 }, () => {
   test("logs, keeps state between calls, and reports script errors with the page state", async () => {
     await run(`await page.goto(${JSON.stringify(`${fixtures.url}/form.html`)}); state.visits = 1`)
     assert.match(await run("log('hi', 1); state.visits++; return state.visits"), /Returned:\n2\n\nLog:\nhi 1/)
+    assert.match(await run("console.log('from', { console: true }); console.error('bad'); return 1"), /Log:\nfrom \{\n  "console": true\n\}\nerror: bad/)
     const thrown = await call("run", { code: "throw new Error('nope')" })
     assert.ok(thrown.isError)
     assert.match(text(thrown), /^Error: nope[\s\S]*Page: Test form/)
     const timedOut = await call("run", { code: "await new Promise(() => {})", timeoutMs: 1_000 })
     assert.ok(timedOut.isError)
-    assert.match(text(timedOut), /didn't finish within 1000 ms/)
+    assert.match(text(timedOut), /didn't finish within 1000 ms, so this session's browser was closed/)
+    assert.match(await run(`await page.goto(${JSON.stringify(`${fixtures.url}/form.html`)}); return state.visits ?? "fresh"`), /Returned:\nfresh/)
     const broken = await call("run", { code: "this is not javascript" })
     assert.ok(broken.isError)
     assert.match(text(broken), /doesn't compile/)
@@ -211,6 +224,27 @@ describe("agent-browser over MCP", { skip, timeout: 300_000 }, () => {
     assert.match(text(await call("close", {}, "ses_test_b")), /had no browser/)
     await run(`await page.goto(${JSON.stringify(`${fixtures.url}/form.html`)})`, "ses_test_b")
     assert.match(await run("return await page.evaluate(() => localStorage.getItem('who'))", "ses_test_b"), /Returned:\nnull/)
+  })
+
+  test("a script that never yields is stopped, without stalling other sessions", async () => {
+    await run("return 1", "ses_test_c")
+    const order: string[] = []
+    const looping = call("run", { code: "for (;;) {}", timeoutMs: 3_000 }, "ses_test_c").then((result) => {
+      order.push("loop")
+      return result
+    })
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    const started = Date.now()
+    await run("return 1", "ses_test_a")
+    order.push("other")
+    assert.ok(Date.now() - started < 2_000, `another session waited ${Date.now() - started} ms`)
+    const stopped = await looping
+    assert.deepEqual(order, ["other", "loop"])
+    assert.ok(stopped.isError)
+    assert.match(text(stopped), /didn't finish within 3000 ms/)
+    assert.deepEqual(profiles().filter((dir) => dir.startsWith("ses_test_c")), [])
+    assert.match(await run("return 2", "ses_test_c"), /Returned:\n2/)
+    await call("close", {}, "ses_test_c")
   })
 
   test("stopping the server closes every browser and removes its files", async () => {

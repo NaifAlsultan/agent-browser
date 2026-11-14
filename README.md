@@ -50,15 +50,20 @@ Helpers in `run`:
   one-time-code and card values hidden
 - `ref(id)`: a locator for a ref from the latest snapshot
 - `screenshot({ fullPage?, ref? })`: attach a screenshot to the result
-- `log(...)`: add a line to the result
+- `log(...)` (or `console.log`): add a line to the result
 
 ```js
 await page.goto("https://duckduckgo.com/?q=nixos")
 return await snapshot()
 ```
 
-Results include the return value, the page's title and URL afterwards, new tabs, accepted dialogs and bot
-challenges. `run` is not a sandbox: it runs with the server's permissions.
+Results include the return value, the page's title and URL afterwards, new tabs, dialogs (dismissed, except
+leave-page prompts) and bot challenges. Each session's browser and scripts run in a worker thread: a script still
+running at `timeoutMs` (60 s by default) is stopped by ending its worker, which closes that session's browser and
+leaves other sessions alone.
+
+`run` is not a sandbox: scripts run with the server's permissions, and pages can prompt-inject the agent that writes
+them. Run the server in an OS-level sandbox (for example bubblewrap) that hides your files and environment.
 
 Sessions are keyed by OpenCode's `ai.opencode/sessionID` request metadata; other clients share one session per
 server process.

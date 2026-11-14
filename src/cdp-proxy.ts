@@ -157,13 +157,40 @@ export class CdpProxy {
 
   private readonly screenshotsPending = new Set<number>()
 
+  private readonly pointers = new Map<number, { x: number; y: number }>()
+
   private async pace(command: CdpCommand) {
     const page = this.tracker.pageNumber(command.sessionId)
     if (page === undefined) return
-    command.params ??= {}
-    await beforeInput(page, command.method, command.params as JsonObject, this.tracker.isRoot(command.sessionId), (method, params) =>
-      this.call(command.sessionId, method, params as Record<string, unknown>),
-    ).catch((error: unknown) => debug("proxy.human-input-failed", { method: command.method, error: String(error) }))
+    const params = (command.params ??= {})
+    const root = this.tracker.isRoot(command.sessionId)
+    const mouse = command.method === "Input.dispatchMouseEvent"
+    try {
+      if (root && mouse && params.type === "mouseWheel" && params.x === 0 && params.y === 0) {
+        const pointer = this.pointers.get(page) ?? (await this.restPointer(page, command.sessionId))
+        if (pointer) Object.assign(params, pointer)
+      }
+      await beforeInput(page, command.method, params as JsonObject, root, (method, sent) => this.call(command.sessionId, method, sent as Record<string, unknown>))
+      if (root && mouse && params.type !== "mouseWheel" && typeof params.x === "number" && typeof params.y === "number") this.pointers.set(page, { x: params.x, y: params.y })
+    } catch (error) {
+      debug("proxy.human-input-failed", { method: command.method, error: String(error) })
+    }
+  }
+
+  // Playwright's mouse starts at (0, 0), so a wheel before any move would scroll from the page's corner. As browse's
+  // scrollToward does, the pointer first comes to rest over the page.
+  private async restPointer(page: number, sessionId: string | undefined): Promise<{ x: number; y: number } | undefined> {
+    const metrics = (await this.call(sessionId, "Page.getLayoutMetrics")) as { cssLayoutViewport?: { clientWidth?: number; clientHeight?: number } }
+    const width = metrics.cssLayoutViewport?.clientWidth
+    const height = metrics.cssLayoutViewport?.clientHeight
+    if (!width || !height) return undefined
+    const between = (size: number) => Math.round(size * (0.35 + Math.random() * 0.3))
+    const move: Record<string, unknown> = { type: "mouseMoved", x: between(width), y: between(height), button: "none" }
+    await beforeInput(page, "Input.dispatchMouseEvent", move as JsonObject, true, (method, sent) => this.call(sessionId, method, sent as Record<string, unknown>))
+    await this.call(sessionId, "Input.dispatchMouseEvent", move)
+    const pointer = { x: move.x as number, y: move.y as number }
+    this.pointers.set(page, pointer)
+    return pointer
   }
 
   private writeChrome(text: string) {
@@ -199,7 +226,10 @@ export class CdpProxy {
     }
     if (!idMatch && text.includes('"method":"Target.')) {
       try {
-        for (const page of this.tracker.observe(JSON.parse(text) as CdpMessage)) forgetTab(page)
+        for (const page of this.tracker.observe(JSON.parse(text) as CdpMessage)) {
+          forgetTab(page)
+          this.pointers.delete(page)
+        }
       } catch {
       }
     }

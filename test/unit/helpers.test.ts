@@ -9,7 +9,8 @@ import { chromeArgs, chromeEnv, gpuArgs } from "../../src/chrome.ts"
 import { loadConfig } from "../../src/config.ts"
 import { redacted, redactLines, valueLines } from "../../src/snapshot.ts"
 import { removeStaleDirectories, removeStaleDisplay } from "../../src/temp.ts"
-import { errorText, sessionKeyOf } from "../../src/tools.ts"
+import { actionTimeouts, errorText } from "../../src/runner.ts"
+import { sessionKeyOf } from "../../src/tools.ts"
 import { displayInUse, workAreaFor, xauthEntry } from "../../src/xvfb.ts"
 
 describe("snapshot redaction", () => {
@@ -179,6 +180,15 @@ describe("config", () => {
     assert.equal(config.humanInput, true)
     assert.equal(config.gpu, "auto")
     assert.equal(config.chrome, "google-chrome-stable")
+    assert.equal(config.actionTimeoutMs, 30_000)
+    assert.equal(config.navigationTimeoutMs, 30_000)
+  })
+
+  test("Playwright's waits end before the script's deadline, so a slow action is an error, not a lost browser", () => {
+    const config = { actionTimeoutMs: 30_000, navigationTimeoutMs: 30_000 }
+    assert.deepEqual(actionTimeouts(config, 60_000), { action: 30_000, navigation: 30_000 })
+    assert.deepEqual(actionTimeouts(config, 10_000), { action: 8_000, navigation: 8_000 })
+    assert.deepEqual(actionTimeouts(config, 1_000), { action: 1_000, navigation: 1_000 })
   })
 
   test("reads and validates settings", () => {

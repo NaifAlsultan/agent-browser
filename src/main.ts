@@ -4,7 +4,7 @@ import { killSharedDisplayNow, stopSharedDisplay } from "./browser.ts"
 import { loadConfig } from "./config.ts"
 import { log } from "./log.ts"
 import { createServer, serverVersion } from "./server.ts"
-import { SessionManager } from "./session.ts"
+import { SessionManager } from "./sessions.ts"
 import { removeProcessDirectory } from "./temp.ts"
 
 const config = loadConfig()

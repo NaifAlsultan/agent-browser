@@ -212,6 +212,28 @@ describe("CdpProxy", () => {
     assert.deepEqual(client.received.filter((message) => message.id !== undefined).map((message) => message.id).sort(), [10, 11, 12])
   })
 
+  test("human-like input: a wheel before any mouse move scrolls from over the page, not its corner", async () => {
+    const { chrome, proxy } = setup({ humanInput: true })
+    const client = await connect(proxy)
+    cleanup.push(() => client.socket.close())
+    chrome.responder = (message) => (message.method === "Page.getLayoutMetrics" ? { cssLayoutViewport: { clientWidth: 1200, clientHeight: 800 } } : {})
+    attachPage(chrome)
+    await client.until((message) => message.method === "Target.attachedToTarget")
+    client.send({ id: 30, method: "Input.dispatchMouseEvent", sessionId: "PAGE", params: { type: "mouseWheel", x: 0, y: 0, deltaX: 0, deltaY: 30 } })
+    await client.until((message) => message.id === 30, 10_000)
+    const wheel = chrome.received.find((message) => message.id === 30)!
+    const [x, y] = [Number(wheel.params!.x), Number(wheel.params!.y)]
+    assert.ok(x > 1200 * 0.3 && x < 1200 * 0.7 && y > 800 * 0.3 && y < 800 * 0.7, `wheel at ${x},${y}`)
+    const moves = chrome.received.filter((message) => message.method === "Input.dispatchMouseEvent" && message.params!.type === "mouseMoved")
+    assert.ok(moves.length > 3, "the pointer travels to its resting place first")
+    assert.ok(chrome.received.indexOf(moves.at(-1)!) < chrome.received.indexOf(wheel))
+    // Later wheels at Playwright's (0, 0) stay where the pointer rests.
+    client.send({ id: 31, method: "Input.dispatchMouseEvent", sessionId: "PAGE", params: { type: "mouseWheel", x: 0, y: 0, deltaX: 0, deltaY: 30 } })
+    await client.until((message) => message.id === 31, 10_000)
+    const second = chrome.received.find((message) => message.id === 31)!
+    assert.deepEqual([second.params!.x, second.params!.y], [wheel.params!.x, wheel.params!.y])
+  })
+
   test("without human input, input goes straight through unchanged", async () => {
     const { chrome, proxy } = setup({ humanInput: false })
     const client = await connect(proxy)

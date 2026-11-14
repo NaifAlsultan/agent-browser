@@ -1,17 +1,17 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { Config } from "./config.ts"
-import type { SessionManager } from "./session.ts"
+import type { SessionManager } from "./sessions.ts"
 import { Tools } from "./tools.ts"
 
 export const serverName = "agent-browser"
-export const serverVersion = "0.2.0"
+export const serverVersion = "0.3.0"
 
 export const instructions = `agent-browser is a web browser for visiting sites, searching, reading pages and filling forms: a real Google Chrome in the background with a fresh profile for this session (no logins, cookies or history of the user's), deleted when the session calls close, after 15 minutes without a call, or when OpenCode exits.
 
 Use it with run({ code }): Playwright JavaScript with \`page\`, \`context\`, \`state\` and these helpers in scope:
 - snapshot() returns an outline of the page with element refs like [ref=e12] (in iframes, f1e3).
 - ref("e12") is a Locator for a ref from the latest snapshot.
-- screenshot({ fullPage, ref }) attaches an image to the result; log(...) adds a line.
+- screenshot({ fullPage, ref }) attaches an image to the result; log(...) or console.log(...) adds a line.
 
 A typical loop:
 1. run: await page.goto("https://duckduckgo.com/?q=your+query"); return await snapshot()
@@ -22,7 +22,8 @@ Tips:
 - Type with await ref("e5").pressSequentially("text") (like a person); fill() is instant and easier to spot. Click, hover and scroll as usual: input is paced like a person's automatically, so it takes a moment.
 - Go back and forward with page.goBack({ waitUntil: "commit" }) and page.goForward({ waitUntil: "commit" }): pages restored from the back/forward cache never fire load events.
 - page.evaluate runs in an isolated world that pages can't see. Avoid page.addInitScript, page.exposeFunction and page.route: pages can detect them.
-- Results end with the page's title and URL, new tabs (\`page\` is the newest from the next call), accepted dialogs and bot challenges.
+- Results end with the page's title and URL, new tabs (\`page\` is the newest from the next call), dialogs (dismissed, except leave-page prompts) and bot challenges.
+- A ref that no longer matches anything fails after 3 s: take a new snapshot. A script still running at its timeout (60 s by default) is stopped by closing the session's browser, which loses its tabs and state.
 
 Bot checks: a check that clears itself (Cloudflare's "Just a moment...") is waited out automatically. When a result says WARNING: blocked, don't retry, reload or try to solve the CAPTCHA: use another source or tell the user.
 
@@ -30,6 +31,6 @@ Password, one-time-code and payment-card fields show [hidden] in snapshots. Don'
 
 export function createServer(config: Config, sessions: SessionManager): McpServer {
   const server = new McpServer({ name: serverName, version: serverVersion }, { instructions })
-  new Tools(config, sessions).register(server)
+  new Tools(sessions).register(server)
   return server
 }

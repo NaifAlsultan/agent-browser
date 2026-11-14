@@ -86,7 +86,7 @@ const results: unknown[] = []
 
 for (const setup of setups) {
   if (setup === "ours") {
-    const browser = await AgentBrowser.launch(config, "detection")
+    const browser = await AgentBrowser.launchHere(config, "detection")
     try {
       const page = browser.context.pages()[0]!
       for (const site of sites) results.push(await visit(page, site, out, setup))

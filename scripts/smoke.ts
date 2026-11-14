@@ -4,7 +4,7 @@ import { loadConfig } from "../src/config.ts"
 import { removeProcessDirectory } from "../src/temp.ts"
 
 const config = loadConfig()
-const browser = await AgentBrowser.launch(config, "smoke")
+const browser = await AgentBrowser.launchHere(config, "smoke")
 try {
   const page = browser.context.pages()[0] ?? (await browser.context.newPage())
   await page.goto(process.argv[2] ?? "data:text/html,<title>smoke</title><h1>hello</h1>")

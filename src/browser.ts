@@ -5,14 +5,14 @@ import type { Config } from "./config.ts"
 import { log } from "./log.ts"
 import { chromium, type Browser, type BrowserContext } from "./patchright.ts"
 import { makeDirectory, processDirectory, recordDisplay } from "./temp.ts"
-import { startXvfb, type Display } from "./xvfb.ts"
+import { startXvfb, type Display, type WorkArea } from "./xvfb.ts"
 
 let display: Promise<Display> | undefined
 let running: Display | undefined
 let policiesChecked = false
 
 // Chrome applies /etc/opt/chrome/policies to every profile and has no flag to ignore them.
-function warnAboutPolicies() {
+export function warnAboutPolicies() {
   if (policiesChecked) return
   policiesChecked = true
   for (const kind of ["managed", "recommended"]) {
@@ -85,6 +85,9 @@ async function replaceStartupTab(proxy: CdpProxy): Promise<void> {
   for (const target of startup) await proxy.call(undefined, "Target.closeTarget", { targetId: target.targetId }).catch(() => undefined)
 }
 
+// What a session's worker needs of the shared display; the Xvfb process itself stays with the main thread.
+export type DisplayInfo = { readonly display: string; readonly xauthority: string; readonly workArea: WorkArea }
+
 export class AgentBrowser {
   readonly browser: Browser
   readonly context: BrowserContext
@@ -104,10 +107,7 @@ export class AgentBrowser {
     return this.browser.isConnected() && this.chrome.process.exitCode === null && this.chrome.process.signalCode === null
   }
 
-  static async launch(config: Config, label = "session"): Promise<AgentBrowser> {
-    warnAboutPolicies()
-    const { display: displayName, xauthority, workArea } = await sharedDisplay(config)
-    const directory = makeDirectory(label.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 40) || "session", config.tmpDir)
+  static async launch(config: Config, { display: displayName, xauthority, workArea }: DisplayInfo, directory: string, label = "session"): Promise<AgentBrowser> {
     let chrome: Chrome | undefined
     let proxy: CdpProxy | undefined
     try {
@@ -144,6 +144,12 @@ export class AgentBrowser {
     }
   }
 
+  // For scripts that drive one browser in-process; the server launches each session in a worker instead.
+  static async launchHere(config: Config, label: string): Promise<AgentBrowser> {
+    const { display, xauthority, workArea } = await sharedDisplay(config)
+    return AgentBrowser.launch(config, { display, xauthority, workArea }, makeDirectory(label, config.tmpDir), label)
+  }
+
   private closing: Promise<void> | undefined
 
   close(): Promise<void> {
@@ -176,5 +182,14 @@ export class AgentBrowser {
 
   get profileDirectory(): string {
     return this.directory
+  }
+
+  get chromePid(): number | undefined {
+    return this.chrome.process.pid
+  }
+
+  onLost(listener: () => void): void {
+    this.browser.on("disconnected", listener)
+    void this.chrome.exited.then(listener)
   }
 }
