@@ -12,6 +12,12 @@ built to be hard for sites to tell apart from a person's.
 
 Linux only.
 
+> [!WARNING]
+> agent-browser is not a security boundary. Agents browse by writing scripts that run with the server's
+> permissions: files, environment variables, commands. The pages they read can prompt-inject them into writing harmful
+> ones. Run the server in an OS-level sandbox (for example bubblewrap) that hides your files and environment, and
+> don't rely on your MCP client's tool permissions to contain it.
+
 ## Detection results
 
 | Page | Playwright (headless) | agent-browser |
@@ -61,9 +67,6 @@ Results include the return value, the page's title and URL afterwards, new tabs,
 leave-page prompts) and bot challenges. Each session's browser and scripts run in a worker thread: a script still
 running at `timeoutMs` (60 s by default) is stopped by ending its worker, which closes that session's browser and
 leaves other sessions alone.
-
-`run` is not a sandbox: scripts run with the server's permissions, and pages can prompt-inject the agent that writes
-them. Run the server in an OS-level sandbox (for example bubblewrap) that hides your files and environment.
 
 Sessions are keyed by OpenCode's `ai.opencode/sessionID` request metadata; other clients share one session per
 server process.
