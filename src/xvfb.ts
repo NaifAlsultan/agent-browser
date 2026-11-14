@@ -1,6 +1,6 @@
 // Staying clear of real displays:
-// - We pick the display number. Xvfb's -displayfd search only checks that it can bind, then replaces another
-//   server's socket file, which broke an Xwayland that listens on /tmp/.X11-unix/X0 only.
+// - We pick the display number, skipping any in use: Xvfb's -displayfd search can replace another server's
+//   socket file.
 // - No abstract socket: those are shared machine-wide, even with sandboxes that have a private /tmp.
 // - Chrome connects by socket path, so an impostor's abstract socket can't capture it.
 import { execFile, spawn, type ChildProcess } from "node:child_process"
