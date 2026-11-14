@@ -18,6 +18,8 @@ A typical loop:
 2. run: await ref("e12").click(); return await snapshot()
 Do several steps in one call when you know what they are, and return only what you need: whole snapshots are large.
 
+When you're done browsing, call close(). An open browser takes hundreds of MB to a few GB of the user's memory until then, or until it has been idle for 15 minutes. Close it as soon as you've got what you need, before writing your answer, unless you expect to browse again shortly (for example, the user is likely to ask a follow-up about the same pages).
+
 Tips:
 - Type with await ref("e5").pressSequentially("text") (like a person); fill() is instant and easier to spot. Click, hover and scroll as usual: input is paced like a person's automatically, so it takes a moment.
 - Go back and forward with page.goBack({ waitUntil: "commit" }) and page.goForward({ waitUntil: "commit" }): pages restored from the back/forward cache never fire load events.

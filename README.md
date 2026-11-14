@@ -50,6 +50,9 @@ Like [browse](https://github.com/anomalyco/browse), one tool does the browsing: 
 | `run({ code, timeoutMs? })` | Run Playwright JavaScript with `page`, `context` and `state` (kept between calls) in scope |
 | `close()` | Close the session's browser and delete its profile |
 
+The instructions tell agents to call `close()` when they're done browsing, so a session's Chrome doesn't hold memory
+until the 15-minute idle timeout.
+
 Helpers in `run`:
 
 - `snapshot({ ref?, maxChars? })`: page outline with element refs such as `e12`, iframes included; password,

@@ -48,7 +48,7 @@ export class Tools {
 
     server.registerTool("close", {
       title: "Close the browser",
-      description: "Close this session's browser now and delete its profile (cookies, history, storage). The next run starts a fresh one.",
+      description: "Close this session's browser now and delete its profile (cookies, history, storage). Call it when you're done browsing: an open browser holds hundreds of MB to a few GB of the user's memory until it has been idle for 15 minutes. The next run starts a fresh one.",
       inputSchema: {},
     }, async (_args, extra) => {
       const closed = await this.sessions.close(sessionKeyOf(extra, this.sessionMetaKey))
