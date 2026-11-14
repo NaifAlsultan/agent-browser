@@ -43,6 +43,8 @@ export const runDescription = `Run Playwright JavaScript in this session's brows
 - ref(id, page?): a Locator for a ref from the latest snapshot of that page.
 - screenshot({ fullPage?, ref?, page? }): attaches a screenshot to the result.
 - log(...values): adds a line to the result.
+These exist only inside \`code\`: from a client's own code mode, pass the Playwright code here as a string. There's no document, location or fetch: use page.evaluate(...) for code in the page.
+Type with locator.pressSequentially(text), like a person; fill() is instant and easier to spot. Use page.goBack({ waitUntil: "commit" }) and page.goForward({ waitUntil: "commit" }): pages restored from the back/forward cache fire no load events.
 The result also gives the page's title and URL afterwards, new tabs (later calls continue in the newest), accepted dialogs and bot challenges. It is not a sandbox: the code runs with the server's permissions.`
 
 export class Tools {
