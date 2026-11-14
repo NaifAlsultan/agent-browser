@@ -1,3 +1,6 @@
+/** OpenCode's per-session request metadata; AGENT_BROWSER_SESSION_META_KEY picks another client's key. */
+export const defaultSessionMetaKey = "ai.opencode/sessionID"
+
 function integer(name: string, fallback: number, min: number, max: number): number {
   const raw = process.env[name]?.trim()
   if (!raw) return fallback
@@ -31,6 +34,7 @@ export type Config = {
   readonly xprop: string | undefined
   readonly humanInput: boolean
   readonly gpu: "auto" | "on" | "off"
+  readonly sessionMetaKey: string
 }
 
 function gpu(): "auto" | "on" | "off" {
@@ -60,5 +64,6 @@ export function loadConfig(): Config {
     xprop: process.env.AGENT_BROWSER_XPROP?.trim() || undefined,
     humanInput: flag("AGENT_BROWSER_HUMAN_INPUT", true),
     gpu: gpu(),
+    sessionMetaKey: process.env.AGENT_BROWSER_SESSION_META_KEY?.trim() || defaultSessionMetaKey,
   }
 }

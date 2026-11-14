@@ -1,14 +1,13 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { z } from "zod"
+import { defaultSessionMetaKey } from "./config.ts"
 import { errorText } from "./runner.ts"
 import { defaultSessionKey, type SessionManager } from "./sessions.ts"
 
-export const sessionMetaKey = "ai.opencode/sessionID"
-
 type Extra = { _meta?: Record<string, unknown> }
 
-export function sessionKeyOf(extra: Extra | undefined): string {
-  const value = extra?._meta?.[sessionMetaKey]
+export function sessionKeyOf(extra: Extra | undefined, metaKey = defaultSessionMetaKey): string {
+  const value = extra?._meta?.[metaKey]
   return typeof value === "string" && value.trim() ? value.trim() : defaultSessionKey
 }
 
@@ -24,9 +23,11 @@ The result also gives the page's title and URL afterwards, new tabs (later calls
 
 export class Tools {
   private readonly sessions: SessionManager
+  private readonly sessionMetaKey: string
 
-  constructor(sessions: SessionManager) {
+  constructor(sessions: SessionManager, sessionMetaKey = defaultSessionMetaKey) {
     this.sessions = sessions
+    this.sessionMetaKey = sessionMetaKey
   }
 
   register(server: McpServer) {
@@ -39,7 +40,7 @@ export class Tools {
       },
     }, async ({ code, timeoutMs }, extra) => {
       try {
-        return await this.sessions.run(sessionKeyOf(extra), code, timeoutMs ?? 60_000)
+        return await this.sessions.run(sessionKeyOf(extra, this.sessionMetaKey), code, timeoutMs ?? 60_000)
       } catch (error) {
         return { isError: true, content: [{ type: "text", text: errorText(error) }] }
       }
@@ -50,7 +51,7 @@ export class Tools {
       description: "Close this session's browser now and delete its profile (cookies, history, storage). The next run starts a fresh one.",
       inputSchema: {},
     }, async (_args, extra) => {
-      const closed = await this.sessions.close(sessionKeyOf(extra))
+      const closed = await this.sessions.close(sessionKeyOf(extra, this.sessionMetaKey))
       return { content: [{ type: "text", text: closed ? "Closed the browser and deleted its profile." : "This session had no browser open." }] }
     })
   }

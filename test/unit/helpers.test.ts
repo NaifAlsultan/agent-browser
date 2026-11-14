@@ -56,6 +56,12 @@ describe("tool helpers", () => {
     assert.equal(sessionKeyOf(undefined), "default")
   })
 
+  test("sessionKeyOf reads another client's key when one is configured", () => {
+    const meta = { _meta: { "example.com/conversationId": " conv_1 ", "ai.opencode/sessionID": "ses_abc" } }
+    assert.equal(sessionKeyOf(meta, "example.com/conversationId"), "conv_1")
+    assert.equal(sessionKeyOf({ _meta: { "ai.opencode/sessionID": "ses_abc" } }, "example.com/conversationId"), "default")
+  })
+
   test("errorText keeps Playwright's message and the start of its call log", () => {
     const error = new Error("locator.click: Timeout 15000ms exceeded.\nCall log:\n  - one\n  - two\n  - three\n  - four\n  - five")
     assert.equal(errorText(error), "locator.click: Timeout 15000ms exceeded.\nCall log:\n  - one\n  - two\n  - three")

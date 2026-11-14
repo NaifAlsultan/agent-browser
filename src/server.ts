@@ -6,7 +6,7 @@ import { Tools } from "./tools.ts"
 export const serverName = "agent-browser"
 export const serverVersion = "0.3.0"
 
-export const instructions = `agent-browser is a web browser for visiting sites, searching, reading pages and filling forms: a real Google Chrome in the background with a fresh profile for this session (no logins, cookies or history of the user's), deleted when the session calls close, after 15 minutes without a call, or when OpenCode exits.
+export const instructions = `agent-browser is a web browser for visiting sites, searching, reading pages and filling forms: a real Google Chrome in the background with a fresh profile for this session (no logins, cookies or history of the user's), deleted when the session calls close, after 15 minutes without a call, or when the MCP client disconnects.
 
 Use it with run({ code }): Playwright JavaScript with \`page\`, \`context\`, \`state\` and these helpers in scope:
 - snapshot() returns an outline of the page with element refs like [ref=e12] (in iframes, f1e3).
@@ -31,6 +31,6 @@ Password, one-time-code and payment-card fields show [hidden] in snapshots. Don'
 
 export function createServer(config: Config, sessions: SessionManager): McpServer {
   const server = new McpServer({ name: serverName, version: serverVersion }, { instructions })
-  new Tools(sessions).register(server)
+  new Tools(sessions, config.sessionMetaKey).register(server)
   return server
 }

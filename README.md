@@ -68,8 +68,10 @@ leave-page prompts) and bot challenges. Each session's browser and scripts run i
 running at `timeoutMs` (60 s by default) is stopped by ending its worker, which closes that session's browser and
 leaves other sessions alone.
 
-Sessions are keyed by OpenCode's `ai.opencode/sessionID` request metadata; other clients share one session per
-server process.
+Sessions are keyed by OpenCode's `ai.opencode/sessionID` request metadata, so each OpenCode session gets its own
+browser. Clients that don't send it share one browser per server process, which for stdio clients is usually one per
+client instance: parallel chats or subagents in it share tabs, cookies and `state`. If your client sends its own
+per-conversation ID in `_meta`, set `AGENT_BROWSER_SESSION_META_KEY` to that key.
 
 ## Install
 
@@ -108,6 +110,7 @@ Then add it to your MCP client, for example OpenCode:
 | `AGENT_BROWSER_HUMAN_INPUT` | on | `off` for faster, more detectable input |
 | `AGENT_BROWSER_CHROME_ARGS` | | Extra Chrome flags |
 | `AGENT_BROWSER_TMPDIR` | system temp dir | Where profiles go |
+| `AGENT_BROWSER_SESSION_META_KEY` | `ai.opencode/sessionID` | Request `_meta` key that identifies a session |
 | `AGENT_BROWSER_DEBUG` | off | Verbose logs on stderr |
 
 Also: `AGENT_BROWSER_ACTION_TIMEOUT_MS`, `AGENT_BROWSER_NAVIGATION_TIMEOUT_MS`, `AGENT_BROWSER_CHALLENGE_WAIT_MS`,
