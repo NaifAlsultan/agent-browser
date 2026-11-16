@@ -18,13 +18,12 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "
 browse-core.workspace = true
 browse-page.workspace = true
 browse-capture.workspace = true
-browse-script.workspace = true
 libc = "0.2"
 x11rb = { version = "0.13", default-features = false }
 
 [workspace]
 resolver = "3"
-members = ["vendor/browse/browse-core", "vendor/browse/browse-page", "vendor/browse/browse-capture", "vendor/browse/browse-script"]
+members = ["vendor/browse/browse-core", "vendor/browse/browse-page", "vendor/browse/browse-capture"]
 
 [workspace.package]
 version = "0.1.0"
@@ -43,7 +42,6 @@ tracing = "0.1"
 browse-core = { path = "vendor/browse/browse-core" }
 browse-page = { path = "vendor/browse/browse-page" }
 browse-capture = { path = "vendor/browse/browse-capture" }
-browse-script = { path = "vendor/browse/browse-script" }
 
 [profile.release]
 opt-level = "z"
