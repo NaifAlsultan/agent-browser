@@ -114,16 +114,13 @@ impl Display {
     pub async fn stop(&self) {
         process::terminate(self.pid, self.exited.clone(), Duration::from_secs(3)).await;
     }
-
-    pub fn kill_now(&self) {
-        process::signal(self.pid, libc::SIGKILL);
-    }
 }
 
 fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
-    let mut file = std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(path).with_context(|| format!("writing {}", path.display()))?;
+    let mut file =
+        std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(path).with_context(|| format!("writing {}", path.display()))?;
     file.write_all(bytes)?;
     Ok(())
 }

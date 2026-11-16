@@ -19,8 +19,9 @@ use crate::xvfb::WorkArea;
 
 pub struct Launch<'a> {
     pub executable: &'a str,
-    /// The X display (socket path) and its authority file; None runs Chrome headless.
-    pub display: Option<(&'a str, &'a Path)>,
+    /// The X display (socket path) and its authority file.
+    pub display: &'a str,
+    pub xauthority: &'a Path,
     pub window: WorkArea,
     pub directory: &'a Path,
     pub extra_args: &'a [String],
@@ -40,7 +41,8 @@ pub struct Pipe {
 }
 
 pub fn render_node() -> Option<PathBuf> {
-    let mut names: Vec<String> = std::fs::read_dir("/dev/dri").ok()?.flatten().map(|e| e.file_name().to_string_lossy().to_string()).filter(|n| n.starts_with("renderD")).collect();
+    let mut names: Vec<String> =
+        std::fs::read_dir("/dev/dri").ok()?.flatten().map(|e| e.file_name().to_string_lossy().to_string()).filter(|n| n.starts_with("renderD")).collect();
     names.sort();
     names.into_iter().map(|name| PathBuf::from("/dev/dri").join(name)).find(|path| {
         let path = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()).unwrap_or_default();
@@ -77,10 +79,9 @@ pub fn args(launch: &Launch, profile: &Path, has_render_node: bool) -> Vec<Strin
         "--disable-search-engine-choice-screen".into(),
         "--password-store=basic".into(),
         "--mute-audio".into(),
+        // Chrome quits when its last window closes, which closing an agent's last tab would do.
+        "--keep-alive-for-test".into(),
     ]);
-    if launch.display.is_none() {
-        args.push("--headless".into());
-    }
     args.extend(launch.extra_args.iter().cloned());
     args.push("about:blank".into());
     args
@@ -105,16 +106,14 @@ const DESKTOP_VARIABLES: &[&str] = &[
     "XAUTHORITY",
 ];
 
-pub fn env(base: impl IntoIterator<Item = (OsString, OsString)>, display: Option<(&str, &Path)>, home: &Path) -> BTreeMap<OsString, OsString> {
+pub fn env(base: impl IntoIterator<Item = (OsString, OsString)>, display: &str, xauthority: &Path, home: &Path) -> BTreeMap<OsString, OsString> {
     let mut env: BTreeMap<OsString, OsString> = base.into_iter().filter(|(name, _)| !DESKTOP_VARIABLES.iter().any(|d| name == d)).collect();
     // The session bus reaches the desktop: notifications, the keyring, portals.
     env.insert("DBUS_SESSION_BUS_ADDRESS".into(), "disabled:".into());
     env.insert("HOME".into(), home.into());
-    if let Some((display, xauthority)) = display {
-        env.insert("DISPLAY".into(), display.into());
-        env.insert("XAUTHORITY".into(), xauthority.into());
-        env.insert("XDG_SESSION_TYPE".into(), "x11".into());
-    }
+    env.insert("DISPLAY".into(), display.into());
+    env.insert("XAUTHORITY".into(), xauthority.into());
+    env.insert("XDG_SESSION_TYPE".into(), "x11".into());
     env
 }
 
@@ -130,8 +129,16 @@ impl Chrome {
         let (commands_read, commands_write) = process::pipe()?;
         let (events_read, events_write) = process::pipe()?;
         let mut command = Command::new(launch.executable);
-        command.args(&args).env_clear().envs(env(std::env::vars_os(), launch.display, &home)).current_dir(&home).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped());
-        let mut child = process::spawn(command, vec![(commands_read, 3), (events_write, 4)], true).with_context(|| format!("starting {}", launch.executable))?;
+        command
+            .args(&args)
+            .env_clear()
+            .envs(env(std::env::vars_os(), launch.display, launch.xauthority, &home))
+            .current_dir(&home)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped());
+        let mut child =
+            process::spawn(command, vec![(commands_read, 3), (events_write, 4)], true).with_context(|| format!("starting {}", launch.executable))?;
         let pid = child.id() as i32;
         let stderr = Arc::new(Mutex::new(Vec::new()));
         if let Some(output) = child.stderr.take() {
@@ -156,7 +163,7 @@ impl Chrome {
             let _ = watcher.wait_for(|gone| *gone).await;
             crate::log!("chrome.exited", pid = pid);
         });
-        crate::log!("chrome.started", pid = pid, display = launch.display.map(|(d, _)| d).unwrap_or("headless"));
+        crate::log!("chrome.started", pid = pid, display = launch.display);
         Ok((Chrome { pid, exited, stderr }, Pipe { input: commands_write, output: events_read }))
     }
 
@@ -183,11 +190,12 @@ impl Chrome {
 mod tests {
     use super::*;
 
-    fn launch(display: Option<(&'static str, &'static Path)>) -> Launch<'static> {
+    fn launch() -> Launch<'static> {
         static EXTRA: [String; 0] = [];
         Launch {
             executable: "chrome",
-            display,
+            display: "/tmp/.X11-unix/X123",
+            xauthority: Path::new("/tmp/x"),
             window: WorkArea { x: 0, y: 32, width: 1920, height: 1048 },
             directory: Path::new("/tmp/session"),
             extra_args: &EXTRA,
@@ -197,7 +205,7 @@ mod tests {
 
     #[test]
     fn launch_flags() {
-        let args = args(&launch(Some(("/tmp/.X11-unix/X123", Path::new("/tmp/x")))), Path::new("/tmp/session/profile"), true);
+        let args = args(&launch(), Path::new("/tmp/session/profile"), true);
         assert_eq!(
             args,
             [
@@ -214,10 +222,11 @@ mod tests {
                 "--disable-search-engine-choice-screen",
                 "--password-store=basic",
                 "--mute-audio",
+                "--keep-alive-for-test",
                 "about:blank",
             ]
         );
-        assert!(!args.iter().any(|a| a.contains("remote-debugging-port") || a.contains("enable-automation") || a == "--headless"));
+        assert!(!args.iter().any(|a| a.contains("remote-debugging-port") || a.contains("enable-automation") || a.contains("headless")));
     }
 
     #[test]
@@ -231,10 +240,10 @@ mod tests {
     #[test]
     fn extra_args_come_before_the_url() {
         let extra = vec!["--no-sandbox".to_string()];
-        let mut launch = launch(None);
+        let mut launch = launch();
         launch.extra_args = &extra;
         let args = args(&launch, Path::new("/p"), false);
-        assert_eq!(&args[args.len() - 3..], ["--headless", "--no-sandbox", "about:blank"]);
+        assert_eq!(&args[args.len() - 3..], ["--keep-alive-for-test", "--no-sandbox", "about:blank"]);
     }
 
     #[test]
@@ -251,7 +260,7 @@ mod tests {
             ("HOME", "/home/u"),
         ]
         .map(|(k, v)| (OsString::from(k), OsString::from(v)));
-        let env = env(base, Some(("/tmp/.X11-unix/X5", Path::new("/tmp/d/Xauthority"))), Path::new("/tmp/d/home"));
+        let env = env(base, "/tmp/.X11-unix/X5", Path::new("/tmp/d/Xauthority"), Path::new("/tmp/d/home"));
         let get = |k: &str| env.get(&OsString::from(k)).map(|v| v.to_string_lossy().to_string());
         assert_eq!(get("PATH").as_deref(), Some("/bin"));
         assert_eq!(get("WAYLAND_DISPLAY"), None);
@@ -262,7 +271,5 @@ mod tests {
         assert_eq!(get("DISPLAY").as_deref(), Some("/tmp/.X11-unix/X5"));
         assert_eq!(get("XAUTHORITY").as_deref(), Some("/tmp/d/Xauthority"));
         assert_eq!(get("XDG_SESSION_TYPE").as_deref(), Some("x11"));
-        let headless = super::env([(OsString::from("DISPLAY"), OsString::from(":0"))], None, Path::new("/h"));
-        assert_eq!(headless.get(&OsString::from("DISPLAY")), None);
     }
 }

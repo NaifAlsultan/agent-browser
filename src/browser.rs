@@ -1,7 +1,7 @@
 //! One agent session's Chrome as a `browse_core::Browser`: its tabs, each a flattened target session on the pipe.
 
 use std::collections::{BTreeMap, VecDeque};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
@@ -10,7 +10,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use async_trait::async_trait;
 use browse_core::{Browser, Cdp, CdpError, CdpEvent, HandoffResult, TabId, TabInfo, TabOptions, TabState};
 use serde_json::{Value, json};
-use tokio::sync::{broadcast, watch};
+use tokio::sync::broadcast;
 
 use crate::cdp::{BrowserEvent, Connection};
 use crate::chrome::{self, Chrome};
@@ -22,8 +22,9 @@ const GONE_KEPT: usize = 64;
 
 pub struct Launch {
     pub executable: String,
-    /// The X display (socket path) and its authority file; None runs Chrome headless.
-    pub display: Option<(String, PathBuf)>,
+    /// The X display (socket path) and its authority file.
+    pub display: String,
+    pub xauthority: PathBuf,
     pub window: WorkArea,
     pub directory: PathBuf,
     pub extra_args: Vec<String>,
@@ -46,8 +47,8 @@ struct Tabs {
     live: BTreeMap<TabId, Tab>,
     next: TabId,
     gone: VecDeque<(TabId, Arc<TabState>)>,
-    /// A blank page no agent uses, kept so closing the last tab doesn't close the window and with it Chrome.
-    spare: Option<String>,
+    /// The tab in front of its window. Chrome doesn't draw the others, and their windows report odd geometry.
+    front: Option<TabId>,
 }
 
 struct Inner {
@@ -66,7 +67,8 @@ impl AgentBrowser {
     pub async fn launch(launch: Launch) -> Result<AgentBrowser> {
         let started = Chrome::launch(&chrome::Launch {
             executable: &launch.executable,
-            display: launch.display.as_ref().map(|(display, xauthority)| (display.as_str(), xauthority.as_path())),
+            display: &launch.display,
+            xauthority: &launch.xauthority,
             window: launch.window,
             directory: &launch.directory,
             extra_args: &launch.extra_args,
@@ -117,9 +119,8 @@ impl AgentBrowser {
         connection.send("Target.setDiscoverTargets", json!({ "discover": true }), None).await?;
         // No agent can reach a downloaded file, and downloads could fill the disk.
         connection.send("Browser.setDownloadBehavior", json!({ "behavior": "deny" }), None).await?;
-        // The "unsupported command-line flag" infobar only appears on the startup tab, where it shrinks the viewport.
-        let spare = connection.send("Target.createTarget", json!({ "url": "about:blank" }), None).await?;
-        self.0.tabs.lock().unwrap().spare = spare["targetId"].as_str().map(str::to_string);
+        // --disable-blink-features shows an "unsupported command-line flag" bar on the startup tab, which shrinks its
+        // viewport. Agents get tabs of their own.
         for target in startup {
             let _ = connection.send("Target.closeTarget", json!({ "targetId": target }), None).await;
         }
@@ -128,15 +129,6 @@ impl AgentBrowser {
 
     pub fn alive(&self) -> bool {
         self.0.chrome.alive() && !self.0.connection.closed()
-    }
-
-    /// Resolves once Chrome has exited.
-    pub fn exited(&self) -> watch::Receiver<bool> {
-        self.0.chrome.exited.clone()
-    }
-
-    pub fn directory(&self) -> &Path {
-        &self.0.directory
     }
 
     /// Closes Chrome and deletes the session's directory (profile and home).
@@ -173,21 +165,30 @@ impl AgentBrowser {
         let mut tabs = inner.tabs.lock().unwrap();
         let id = tabs.next;
         tabs.next += 1;
-        let cdp = Arc::new(TabCdp { browser: Arc::downgrade(inner), connection: inner.connection.clone(), tab: id, session: session.clone(), events: events.downgrade() });
-        tabs.live.insert(id, Tab { target: target.to_string(), session, cdp, state: Arc::new(TabState::default()), url: url.to_string(), title: String::new(), opener });
+        let cdp = Arc::new(TabCdp {
+            browser: Arc::downgrade(inner),
+            connection: inner.connection.clone(),
+            tab: id,
+            session: session.clone(),
+            events: events.downgrade(),
+        });
+        tabs.live.insert(
+            id,
+            Tab { target: target.to_string(), session, cdp, state: Arc::new(TabState::default()), url: url.to_string(), title: String::new(), opener },
+        );
+        tabs.front = Some(id);
         crate::debug!("tab.opened", tab = id, target = target, opener = opener.map(|o| o.to_string()).unwrap_or_default());
         Ok(id)
     }
 
     async fn create(&self, url: Option<&str>, opener: Option<TabId>) -> Result<TabId> {
-        let spare = if url.is_none() { self.0.tabs.lock().unwrap().spare.take() } else { None };
-        let target = match spare {
-            Some(target) => target,
-            None => {
-                let created = self.0.connection.send("Target.createTarget", json!({ "url": url.unwrap_or("about:blank") }), None).await.map_err(|e| anyhow!("couldn't open a tab: {e}"))?;
-                created["targetId"].as_str().context("createTarget returned no target")?.to_string()
-            }
-        };
+        let created = self
+            .0
+            .connection
+            .send("Target.createTarget", json!({ "url": url.unwrap_or("about:blank") }), None)
+            .await
+            .map_err(|e| anyhow!("couldn't open a tab: {e}"))?;
+        let target = created["targetId"].as_str().context("createTarget returned no target")?.to_string();
         self.register(&target, opener, url.unwrap_or("about:blank")).await
     }
 
@@ -197,6 +198,9 @@ impl AgentBrowser {
 
     fn forget(&self, id: TabId) {
         let mut tabs = self.0.tabs.lock().unwrap();
+        if tabs.front == Some(id) {
+            tabs.front = None;
+        }
         if let Some(tab) = tabs.live.remove(&id) {
             self.0.connection.forget_session(&tab.session);
             tabs.gone.push_back((id, tab.state));
@@ -208,15 +212,10 @@ impl AgentBrowser {
     }
 
     async fn close_target(&self, id: TabId) -> Result<()> {
-        let (target, last) = {
+        let target = {
             let tabs = self.0.tabs.lock().unwrap();
-            let tab = tabs.live.get(&id).ok_or_else(|| missing(&tabs, id))?;
-            (tab.target.clone(), tabs.live.len() == 1 && tabs.spare.is_none())
+            tabs.live.get(&id).ok_or_else(|| missing(&tabs, id))?.target.clone()
         };
-        if last {
-            let spare = self.0.connection.send("Target.createTarget", json!({ "url": "about:blank" }), None).await?;
-            self.0.tabs.lock().unwrap().spare = spare["targetId"].as_str().map(str::to_string);
-        }
         self.forget(id);
         self.0.connection.send("Target.closeTarget", json!({ "targetId": target }), None).await?;
         Ok(())
@@ -250,10 +249,7 @@ impl AgentBrowser {
                 let target = event.params["targetId"].as_str().unwrap_or_default();
                 let session = event.params["sessionId"].as_str().unwrap_or_default();
                 let found = {
-                    let mut tabs = self.0.tabs.lock().unwrap();
-                    if tabs.spare.as_deref() == Some(target) {
-                        tabs.spare = None;
-                    }
+                    let tabs = self.0.tabs.lock().unwrap();
                     tabs.live.iter().find(|(_, tab)| tab.target == target || tab.session == session).map(|(id, _)| *id)
                 };
                 if let Some(id) = found {
@@ -366,34 +362,15 @@ impl TabCdp {
         self.browser.upgrade().map(AgentBrowser).ok_or(CdpError::Disconnected)
     }
 
-    // From browse's relay: a background tab's screenshot can wait for a frame that never comes; tiny screenshots
-    // nudge it along.
-    async fn screenshot(&self, params: Value) -> Result<Value, CdpError> {
-        let mut nudge = params.clone();
-        nudge["format"] = "jpeg".into();
-        nudge["quality"] = 1.into();
-        if nudge.get("clip").is_some()
-            && let Some(object) = nudge.as_object_mut()
-        {
-            object.remove("captureBeyondViewport");
+    /// Brings the tab to the front of its window before acting on it, as a person switches to a tab to use it.
+    async fn to_front(&self) -> Result<(), CdpError> {
+        let browser = self.browser()?;
+        if browser.0.tabs.lock().unwrap().front == Some(self.tab) {
+            return Ok(());
         }
-        let connection = self.connection.clone();
-        let session = self.session.clone();
-        let nudges = async move {
-            for delay in [600u64, 1_000, 1_500, 2_000, 3_000, 5_000, 8_000] {
-                tokio::time::sleep(Duration::from_millis(delay)).await;
-                crate::debug!("screenshot.nudge", after_ms = delay);
-                let (connection, session, nudge) = (connection.clone(), session.clone(), nudge.clone());
-                tokio::spawn(async move {
-                    let _ = connection.send("Page.captureScreenshot", nudge, Some(&session)).await;
-                });
-            }
-            std::future::pending::<()>().await;
-        };
-        tokio::select! {
-            result = self.connection.send("Page.captureScreenshot", params, Some(&self.session)) => result,
-            _ = nudges => unreachable!(),
-        }
+        self.connection.send("Page.bringToFront", json!({}), Some(&self.session)).await?;
+        browser.0.tabs.lock().unwrap().front = Some(self.tab);
+        Ok(())
     }
 }
 
@@ -424,8 +401,10 @@ impl Cdp for TabCdp {
                 self.browser()?.close_target(self.tab).await.map_err(protocol)?;
                 return Ok(json!({}));
             }
-            "Page.captureScreenshot" if session_id.is_none() => return self.screenshot(params).await,
             _ => {}
+        }
+        if session_id.is_none() && !method.starts_with("Target.") {
+            self.to_front().await?;
         }
         self.connection.send(method, params, Some(session_id.unwrap_or(&self.session))).await
     }

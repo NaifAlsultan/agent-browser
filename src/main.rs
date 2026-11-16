@@ -3,80 +3,104 @@ mod cdp;
 mod chrome;
 mod config;
 mod log;
+mod mcp;
 mod process;
+mod sessions;
 mod temp;
+mod tools;
 mod xvfb;
 
 use std::sync::Arc;
 
-use anyhow::Result;
-use browse_core::{Content, Tool, ToolContext};
-use serde_json::{Value, json};
+use async_trait::async_trait;
+use browse_core::{Content, Tool, ToolContext, ToolOutput, ToolSpec};
+use serde_json::Value;
 
-use crate::browser::{AgentBrowser, Launch};
 use crate::config::Config;
-use crate::temp::ProcessDir;
-use crate::xvfb::Display;
+use crate::sessions::Sessions;
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    let config = Config::from_env()?;
-    log::set_debug(config.debug);
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    match args.first().map(String::as_str) {
-        Some("--smoke") => smoke(&config, &args[1..]).await,
-        _ => anyhow::bail!("not yet"),
+struct App {
+    sessions: Arc<Sessions>,
+    tools: Vec<Arc<dyn Tool>>,
+}
+
+#[async_trait]
+impl mcp::Handler for App {
+    fn tools(&self) -> Vec<ToolSpec> {
+        let mut specs: Vec<ToolSpec> = self.tools.iter().map(|tool| tool.spec()).collect();
+        specs.push(tools::close_spec());
+        specs
+    }
+
+    async fn call(&self, name: &str, arguments: Value, session: &str) -> ToolOutput {
+        if name == tools::CLOSE {
+            return ToolOutput::text(if self.sessions.close(session).await {
+                "Closed this session's browser and deleted its profile. The next call starts a fresh browser."
+            } else {
+                "This session had no browser open."
+            });
+        }
+        if let Some(message) = tools::not_offered(name) {
+            return ToolOutput::error(message);
+        }
+        let Some(tool) = self.tools.iter().find(|tool| tool.spec().name == name).cloned() else {
+            return ToolOutput::error(format!("Unknown tool {name:?}."));
+        };
+        let listing = name == tools::TABS && arguments.get("action").and_then(Value::as_str).unwrap_or("list") == "list";
+        if listing && !self.sessions.has(session) {
+            return ToolOutput::text(r#"{"tabs":[]}"#);
+        }
+        let lease = match self.sessions.acquire(session).await {
+            Ok(lease) => lease,
+            Err(error) => return ToolOutput::error(format!("{error:#}")),
+        };
+        let ctx = ToolContext { browser: Arc::new(lease.browser.clone()), file_roots: Vec::new() };
+        let mut output = tool.call(ctx, arguments).await.unwrap_or_else(|error| ToolOutput::error(format!("{error:#}")));
+        if let Some(notice) = &lease.notice {
+            output.content.insert(0, Content::Text { text: notice.clone() });
+        }
+        output
     }
 }
 
-// Temporary, until the MCP server: drives the tools in-process.
-async fn smoke(config: &Config, args: &[String]) -> Result<()> {
-    let parent = config.tmp_dir.clone().unwrap_or_else(std::env::temp_dir);
-    let dir = ProcessDir::create(&parent)?;
-    let headless = std::env::var("AGENT_BROWSER_HEADLESS").is_ok_and(|v| v == "1");
-    let display = if headless { None } else { Some(Display::start(&config.xvfb, config.screen, &dir.path).await?) };
-    if let Some(display) = &display {
-        dir.record_display(display.number);
-    }
-    let window = display.as_ref().map(|d| d.work_area).unwrap_or(xvfb::WorkArea { x: 0, y: 0, width: config.screen.0, height: config.screen.1 });
-    let browser = AgentBrowser::launch(Launch {
-        executable: config.chrome.clone(),
-        display: display.as_ref().map(|d| (d.display.clone(), d.xauthority.clone())),
-        window,
-        directory: dir.session_dir("smoke")?,
-        extra_args: config.extra_chrome_args.clone(),
-        gpu: config.gpu,
-        human_input: config.human_input,
-    })
-    .await?;
-    let ctx = ToolContext { browser: Arc::new(browser.clone()), file_roots: Vec::new() };
-    let mut tools: Vec<Arc<dyn Tool>> = browse_page::tools();
-    tools.extend(browse_capture::tools());
-    let call = |name: &str, args: Value| {
-        let tool = tools.iter().find(|t| t.spec().name == name).cloned().expect("tool");
-        let ctx = ctx.clone();
-        async move {
-            let output = tool.call(ctx, args).await.unwrap_or_else(|e| browse_core::ToolOutput::error(format!("{e:#}")));
-            let text: Vec<String> = output.content.iter().map(|c| match c {
-                Content::Text { text } => text.clone(),
-                Content::Image { data, mime_type } => format!("[{mime_type} {} KiB]", data.len() * 3 / 4 / 1024),
-            }).collect();
-            (output.is_error, text.join("\n"))
+#[tokio::main]
+async fn main() {
+    let config = match Config::from_env() {
+        Ok(config) => config,
+        Err(error) => {
+            crate::log!("server.config-error", error = format!("{error:#}"));
+            std::process::exit(2);
         }
     };
-    let steps: Vec<(String, Value)> = serde_json::from_str(args.first().map(String::as_str).unwrap_or("[]"))?;
-    for (name, mut step) in steps {
-        if step.get("tab").is_none() && name != "navigate" {
-            step["tab"] = json!(1);
+    log::set_debug(config.debug);
+    let meta_key = config.session_meta_key.clone();
+    crate::log!("server.started", version = mcp::VERSION, pid = std::process::id(), chrome = config.chrome, xvfb = config.xvfb);
+    let sessions = match Sessions::new(config) {
+        Ok(sessions) => sessions,
+        Err(error) => {
+            crate::log!("server.start-failed", error = format!("{error:#}"));
+            std::process::exit(1);
         }
-        let started = std::time::Instant::now();
-        let (error, text) = call(&name, step.clone()).await;
-        println!("=== {name} {step} ({} ms){}\n{text}", started.elapsed().as_millis(), if error { " ERROR" } else { "" });
-    }
-    browser.close().await;
-    if let Some(display) = display {
-        display.stop().await;
-    }
-    dir.remove();
-    Ok(())
+    };
+    let app = Arc::new(App { sessions: sessions.clone(), tools: tools::registry() });
+    let serving = mcp::serve(tokio::io::BufReader::new(tokio::io::stdin()), tokio::io::stdout(), app, meta_key);
+    let signal = |kind| async move {
+        match tokio::signal::unix::signal(kind) {
+            Ok(mut stream) => {
+                stream.recv().await;
+            }
+            Err(_) => std::future::pending().await,
+        }
+    };
+    use tokio::signal::unix::SignalKind;
+    let reason = tokio::select! {
+        _ = serving => "stdin closed",
+        _ = signal(SignalKind::terminate()) => "SIGTERM",
+        _ = signal(SignalKind::interrupt()) => "SIGINT",
+        _ = signal(SignalKind::hangup()) => "SIGHUP",
+    };
+    crate::log!("server.stopping", reason = reason);
+    sessions.shutdown().await;
+    // Calls still running hold runtime threads; don't wait for them.
+    std::process::exit(0);
 }
