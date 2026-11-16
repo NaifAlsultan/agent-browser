@@ -1,44 +1,36 @@
 # Vendored from browse
 
-These files come from [browse](https://github.com/anomalyco/browse) (MIT, see
-[`LICENSE`](LICENSE)), at commit
-[`53eb63dd17339053d5df5736721ad637158d1d31`](https://github.com/anomalyco/browse/tree/53eb63dd17339053d5df5736721ad637158d1d31/cli/src/execute).
-The directory layout mirrors upstream's `cli/src/`, so the files' own imports work unchanged.
+These crates come from [browse](https://github.com/anomalyco/browse) (MIT, see [`LICENSE`](LICENSE)), at commit
+[`c3b29be5299658281fe4ecdcb926bb7b5a9d6f8c`](https://github.com/anomalyco/browse/tree/c3b29be5299658281fe4ecdcb926bb7b5a9d6f8c/rust/crates)
+(v0.1.0), from upstream's `rust/crates/`:
 
-| File | Upstream path | SHA-256 of the upstream file |
-| --- | --- | --- |
-| `execute/human-input.ts` | `cli/src/execute/human-input.ts` | `eaeecb109c3b2aca0bbd68aa55301d6e9a4035fc59438e047397182d43087890` |
-| `execute/challenge-detection.ts` | `cli/src/execute/challenge-detection.ts` | `e47f826fca6886ca22491e6ae62954fc59ad998f4ea1afe457d9544a1e942edf` |
-| `execute/patchright-tuning.ts` | `cli/src/execute/patchright-tuning.ts` | `b3f3377f9728a5200be5db0bd7b1d24b84632cc52929fca2e90eb99362ab8d79` |
+| Crate | What agent-browser uses it for |
+| --- | --- |
+| `browse-core` | The `Browser`, `Cdp` and `Tool` traits agent-browser implements and calls |
+| `browse-page` | The page tools, human-like input and challenge detection |
+| `browse-capture` | `screenshot` |
+| `browse-script` | `execute`: JavaScript in QuickJS with a Playwright-style `page` |
 
-Their tests are ported to `node:test` in the repository's `test/unit/`: `browse-human-input.test.ts` (from
-`cli/test/human-input.test.ts`) and `browse-challenge-detection.test.ts` (from `cli/test/challenge-detection.test.ts`).
+`browse-page/js/injected-script.js` is Playwright's InjectedScript (Apache-2.0); see [`NOTICE`](NOTICE).
 
 ## Local changes
 
-Changes to the copied sources are wrapped in `agent-browser change` comments:
+Every change to upstream's files is marked with an `agent-browser:` comment (`//` in Rust and JavaScript, `#` in
+TOML), so `grep -rn "agent-browser:" vendor/browse` lists them. Besides those:
 
-- `execute/challenge-detection.ts`, `challengeWarning`: the interactive-challenge
-  message no longer tells the agent to call browse's `handoff()`, which agent-browser
-  doesn't have.
-
-The files' only dependencies on the rest of browse are replaced by shims:
-
-- `protocol.ts`: the `JsonObject` type.
-- `relay/log.ts`: `relayLog`, which logs through agent-browser's debug logger.
-
-The tests were ported to `node:test` and `node:assert`, and the `handoff()`
-expectation in `challengeWarning`'s test follows the change above.
+- Tools agent-browser doesn't offer stay in the crates, whose own tests use them; agent-browser leaves them out of
+  its registry (`src/tools.rs`).
+- `browse-page/js/generate.sh` is left out: it regenerates the page scripts from upstream's TypeScript tree.
 
 ## Updating
 
 ```bash
 rev=<new commit>
-mkdir -p /tmp/browse-$rev && curl -fsSL https://codeload.github.com/anomalyco/browse/tar.gz/$rev | tar -xz -C /tmp/browse-$rev --strip-components=1
-for f in human-input challenge-detection patchright-tuning; do
-  diff -u <(git show HEAD:vendor/browse/execute/$f.ts) /tmp/browse-$rev/cli/src/execute/$f.ts
+dir=$(mktemp -d)
+curl -fsSL https://codeload.github.com/anomalyco/browse/tar.gz/$rev | tar -xz -C "$dir" --strip-components=1
+for crate in browse-core browse-page browse-capture browse-script; do
+  diff -ru "$dir/rust/crates/$crate" vendor/browse/$crate
 done
 ```
 
-Apply upstream's changes, keep the marked local changes, and update the commit
-and hashes above.
+Apply upstream's changes, keep the marked local changes, run `cargo test --workspace`, and update the commit above.

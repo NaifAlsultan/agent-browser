@@ -29,6 +29,11 @@
       devShells = forAllSystems (pkgs: {
         default = pkgs.mkShell {
           packages = [
+            pkgs.cargo
+            pkgs.rustc
+            pkgs.clippy
+            pkgs.rustfmt
+            pkgs.rust-analyzer
             pkgs.nodejs_24
             pkgs.google-chrome
             pkgs.xvfb
