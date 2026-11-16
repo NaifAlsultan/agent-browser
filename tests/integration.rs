@@ -35,11 +35,11 @@ struct Fixtures {
     url: String,
 }
 
-/// Serves test/fixtures on 127.0.0.1; /file.bin is a download; other paths echo their query.
+/// Serves tests/fixtures on 127.0.0.1; /file.bin is a download; other paths echo their query.
 async fn fixtures() -> Fixtures {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test/fixtures");
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
     tokio::spawn(async move {
         while let Ok((mut stream, _)) = listener.accept().await {
             let dir = dir.clone();

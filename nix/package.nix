@@ -1,57 +1,40 @@
 {
   lib,
-  buildNpmPackage,
-  nodejs_24,
+  rustPlatform,
   makeWrapper,
   google-chrome,
   xvfb,
-  util-linux,
-  xprop,
 }:
 
-buildNpmPackage {
+rustPlatform.buildRustPackage {
   pname = "agent-browser";
-  version = "0.3.0";
+  version = "0.4.0";
 
   src = lib.fileset.toSource {
     root = ../.;
     fileset = lib.fileset.unions [
-      ../package.json
-      ../package-lock.json
-      ../tsconfig.json
+      ../Cargo.toml
+      ../Cargo.lock
       ../src
       ../vendor
-      ../test
     ];
   };
 
-  nodejs = nodejs_24;
-  npmDepsHash = "sha256-PoJe1o3V6Ma/rFodSnkGaJGFSq2OeoDgfBXs3nG9DtI=";
-  dontNpmBuild = true;
-  npmFlags = [ "--ignore-scripts" ];
+  cargoLock.lockFile = ../Cargo.lock;
 
   nativeBuildInputs = [ makeWrapper ];
 
-  doCheck = true;
-  checkPhase = ''
-    runHook preCheck
-    npx tsc --noEmit -p tsconfig.json
-    node --test --test-concurrency=1 'test/unit/**/*.test.ts'
-    runHook postCheck
-  '';
+  # Unit tests only; the integration tests need Chrome and a display.
+  cargoTestFlags = [
+    "--workspace"
+    "--lib"
+    "--bins"
+  ];
 
-  installPhase = ''
-    runHook preInstall
-    npm prune --omit=dev --ignore-scripts --no-audit --no-fund
-    mkdir -p $out/lib/agent-browser
-    cp -r package.json src vendor node_modules $out/lib/agent-browser/
-    makeWrapper ${lib.getExe nodejs_24} $out/bin/agent-browser \
-      --add-flags $out/lib/agent-browser/src/main.ts \
+  postInstall = ''
+    wrapProgram $out/bin/agent-browser \
       --set-default AGENT_BROWSER_CHROME ${google-chrome}/bin/google-chrome-stable \
-      --set-default AGENT_BROWSER_XVFB ${lib.getExe' xvfb "Xvfb"} \
-      --set-default AGENT_BROWSER_SETPRIV ${lib.getExe' util-linux "setpriv"} \
-      --set-default AGENT_BROWSER_XPROP ${lib.getExe xprop}
-    runHook postInstall
+      --set-default AGENT_BROWSER_XVFB ${lib.getExe' xvfb "Xvfb"}
   '';
 
   meta = {

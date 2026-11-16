@@ -14,6 +14,7 @@ version = "0.4.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "base64",
  "browse-capture",
  "browse-core",
  "browse-page",

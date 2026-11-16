@@ -21,10 +21,58 @@
         default = agent-browser;
       });
 
-      # Unit tests run in the package's check phase; integration tests need a display (npm run test:integration).
-      checks = forAllSystems (pkgs: {
-        unit = self.packages.${pkgs.stdenv.hostPlatform.system}.agent-browser;
-      });
+      # Unit tests run in the package's check phase; integration tests need a display (cargo test in the dev shell).
+      checks = forAllSystems (
+        pkgs:
+        let
+          agent-browser = self.packages.${pkgs.stdenv.hostPlatform.system}.agent-browser;
+        in
+        {
+          unit = agent-browser;
+          clippy = agent-browser.overrideAttrs (old: {
+            pname = "agent-browser-clippy";
+            src = pkgs.lib.fileset.toSource {
+              root = ./.;
+              fileset = pkgs.lib.fileset.unions [
+                ./Cargo.toml
+                ./Cargo.lock
+                ./src
+                ./vendor
+                ./tests
+                ./examples
+              ];
+            };
+            nativeBuildInputs = old.nativeBuildInputs ++ [ pkgs.clippy ];
+            buildPhase = ''
+              runHook preBuild
+              cargo clippy --workspace --all-targets --offline -- -D warnings
+              runHook postBuild
+            '';
+            doCheck = false;
+            installPhase = "touch $out";
+          });
+          # Only agent-browser's own code: the vendored crates keep upstream's formatting.
+          rustfmt =
+            pkgs.runCommand "agent-browser-rustfmt"
+              {
+                nativeBuildInputs = [ pkgs.rustfmt ];
+                src = pkgs.lib.fileset.toSource {
+                  root = ./.;
+                  fileset = pkgs.lib.fileset.unions [
+                    ./rustfmt.toml
+                    ./src
+                    ./tests
+                    ./examples
+                  ];
+                };
+              }
+              ''
+                cd $src
+                rustfmt --check src/main.rs tests/integration.rs examples/*.rs
+                touch $out
+              '';
+        }
+      );
 
       devShells = forAllSystems (pkgs: {
         default = pkgs.mkShell {
@@ -34,18 +82,13 @@
             pkgs.clippy
             pkgs.rustfmt
             pkgs.rust-analyzer
-            pkgs.nodejs_24
             pkgs.google-chrome
             pkgs.xvfb
-            pkgs.util-linux
-            pkgs.xprop
           ];
           AGENT_BROWSER_CHROME = "${pkgs.google-chrome}/bin/google-chrome-stable";
           AGENT_BROWSER_XVFB = "${pkgs.xvfb}/bin/Xvfb";
-          AGENT_BROWSER_SETPRIV = "${pkgs.util-linux}/bin/setpriv";
-          AGENT_BROWSER_XPROP = "${pkgs.xprop}/bin/xprop";
-          # For scripts/detection-compare.ts.
-          PLAYWRIGHT_BROWSERS_PATH = "${pkgs.playwright-driver.browsers}";
+          # For the vendored crates' Chromium tests.
+          BROWSE_TEST_CHROME = "${pkgs.google-chrome}/bin/google-chrome-stable";
         };
       });
 

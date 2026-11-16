@@ -21,6 +21,9 @@ browse-capture.workspace = true
 libc = "0.2"
 x11rb = { version = "0.13", default-features = false }
 
+[dev-dependencies]
+base64.workspace = true
+
 [workspace]
 resolver = "3"
 members = ["vendor/browse/browse-core", "vendor/browse/browse-page", "vendor/browse/browse-capture"]

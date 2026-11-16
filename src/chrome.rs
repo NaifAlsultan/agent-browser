@@ -40,6 +40,28 @@ pub struct Pipe {
     pub output: OwnedFd,
 }
 
+/// Chrome applies these to every profile and has no flag to ignore them.
+pub fn warn_about_policies() {
+    for kind in ["managed", "recommended"] {
+        let dir = format!("/etc/opt/chrome/policies/{kind}");
+        let files: Vec<String> = std::fs::read_dir(&dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .filter(|n| n.ends_with(".json"))
+            .collect();
+        if !files.is_empty() {
+            crate::log!(
+                "chrome.policies-warning",
+                dir = dir,
+                files = files.join(","),
+                note = "Chrome applies these policies to agent-browser's profiles too (extensions, cookie settings); sites may notice. Remove them if this machine's Chrome is only used by agent-browser."
+            );
+        }
+    }
+}
+
 pub fn render_node() -> Option<PathBuf> {
     let mut names: Vec<String> =
         std::fs::read_dir("/dev/dri").ok()?.flatten().map(|e| e.file_name().to_string_lossy().to_string()).filter(|n| n.starts_with("renderD")).collect();

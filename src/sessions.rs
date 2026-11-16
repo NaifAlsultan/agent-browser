@@ -64,6 +64,7 @@ impl Sessions {
         let sessions =
             Arc::new(Sessions { config, dir, display: tokio::sync::Mutex::new(None), slots: Mutex::new(HashMap::new()), evicted: Mutex::new(HashSet::new()) });
         tokio::spawn(reap(Arc::downgrade(&sessions)));
+        crate::chrome::warn_about_policies();
         Ok(sessions)
     }
 
