@@ -171,7 +171,7 @@ Run everything in the dev shell (`nix develop`). It provides Chrome, Xvfb and `B
    cargo run --release --example detection -- /tmp/ab-detect-new
    ```
 
-   The expected results at 0.4.0 with Chrome 157 and a GPU:
+   The expected results at 0.4.1 with Chrome 157 and a GPU:
    - bot.sannysoft.com: 31 of 31 passed
    - BrowserScan: Normal
    - CreepJS: 0% headless (38% "like headless")
@@ -193,6 +193,8 @@ Report results honestly: what failed, what was skipped and why, and what you onl
 - **Don't push or publish.** Leave that to the user. The repo doesn't use tags.
 - **The README** is public: concise, without implementation details, and not about how the project was built or
   what went wrong along the way. Update it only for user-visible changes: tools, configuration, detection results.
-- **Releases:** the version is in `Cargo.toml` and `nix/package.nix`. Ask the user before bumping it.
+- **Releases:** the version is in `Cargo.toml`, `nix/package.nix` and agent-browser's own entry in `Cargo.lock`.
+  Ask the user before bumping it. When you finish a change users will get, remind them in your report that the
+  version hasn't been bumped yet, and suggest the next one.
 - **Explain the why** when you report a decision or propose a change. Recommend one option instead of listing all of
   them.
