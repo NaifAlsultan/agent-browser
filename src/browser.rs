@@ -193,7 +193,17 @@ impl AgentBrowser {
     }
 
     fn info(&self, id: TabId, tab: &Tab) -> TabInfo {
-        TabInfo { tab: id, url: tab.url.clone(), title: tab.title.clone(), lent: false, opener: tab.opener, options: TabOptions::default() }
+        TabInfo {
+            tab: id,
+            url: tab.url.clone(),
+            title: tab.title.clone(),
+            lent: false,
+            chosen: None,
+            opener: tab.opener,
+            last_used: None,
+            busy: false,
+            options: TabOptions::default(),
+        }
     }
 
     fn forget(&self, id: TabId) {
@@ -345,6 +355,10 @@ impl Browser for AgentBrowser {
 
     async fn human_input(&self, _tab: TabId) -> bool {
         self.0.human_input
+    }
+
+    async fn read_only(&self, _tab: TabId) -> bool {
+        false
     }
 }
 

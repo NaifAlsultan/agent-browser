@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use anyhow::{Result, bail};
 use async_trait::async_trait;
-use browse_core::{TabOptions, Tool, ToolContext, ToolOutput, ToolSpec};
+use browse_core::{TabInfo, TabOptions, Tool, ToolContext, ToolOutput, ToolSpec};
 use serde_json::{Value, json};
 
 pub const CLOSE: &str = "close";
@@ -59,7 +59,7 @@ pub fn close_spec() -> ToolSpec {
 }
 
 /// The tab options browse's navigate takes, which only mean something in browse's extension.
-const TAB_OPTIONS: &[&str] = &["group", "allowedOrigins", "readOnly", "keepVisible", "browser"];
+const TAB_OPTIONS: &[&str] = &["group", "allowedOrigins", "readOnly", "keepVisible", "keepOpen", "browser"];
 
 /// A browse tool with our description, and without arguments that don't apply here.
 struct Adjusted {
@@ -130,7 +130,7 @@ impl Tool for TabsTool {
                         tab.title = info["targetInfo"]["title"].as_str().unwrap_or(&tab.title).to_string();
                     }
                 }
-                Ok(text(json!({ "tabs": tabs })))
+                Ok(text(json!({ "tabs": tabs.iter().map(tab_json).collect::<Vec<_>>() })))
             }
             "new" => match args.get("url").and_then(Value::as_str).filter(|url| !url.trim().is_empty()) {
                 // Through navigate, which checks the URL and reports bot challenges.
@@ -138,7 +138,7 @@ impl Tool for TabsTool {
                     let navigate = registry().into_iter().find(|tool| tool.spec().name == "navigate").expect("navigate");
                     navigate.call(ctx, json!({ "url": url })).await
                 }
-                None => Ok(text(serde_json::to_value(ctx.browser.open_tab(None, &TabOptions::default()).await?)?)),
+                None => Ok(text(tab_json(&ctx.browser.open_tab(None, &TabOptions::default()).await?))),
             },
             "close" => {
                 let mut picked = Vec::new();
@@ -175,6 +175,16 @@ impl Tool for TabsTool {
     }
 }
 
+/// A tab as `tabs` returns it. browse's TabInfo also carries the relay's fields (lent, busy, chosen ids), which never
+/// apply here.
+fn tab_json(tab: &TabInfo) -> Value {
+    let mut value = json!({ "tab": tab.tab, "url": tab.url, "title": tab.title });
+    if let Some(opener) = tab.opener {
+        value["opener"] = json!(opener);
+    }
+    value
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -208,7 +218,22 @@ mod tests {
 
     #[test]
     fn descriptions_mention_nothing_agent_browser_lacks() {
-        let words = ["handoff", "extension", "lent", "allowedOrigins", "readOnly", "keepVisible", "file roots", "upload", "emulate", "webmcp", "the user's"];
+        let words = [
+            "handoff",
+            "extension",
+            "lent",
+            "allowedOrigins",
+            "readOnly",
+            "keepVisible",
+            "keepOpen",
+            "chosen id",
+            "work-mail",
+            "file roots",
+            "upload",
+            "emulate",
+            "webmcp",
+            "the user's",
+        ];
         let mut specs: Vec<ToolSpec> = registry().iter().map(|tool| tool.spec()).collect();
         specs.push(close_spec());
         for spec in specs {
@@ -223,13 +248,32 @@ mod tests {
     fn navigate_and_screenshot_lose_the_arguments_that_dont_apply() {
         let specs: Vec<ToolSpec> = registry().iter().map(|tool| tool.spec()).collect();
         let navigate = specs.iter().find(|s| s.name == "navigate").unwrap();
-        for key in ["group", "allowedOrigins", "readOnly", "keepVisible", "browser"] {
+        for key in ["group", "allowedOrigins", "readOnly", "keepVisible", "keepOpen", "browser"] {
             assert!(navigate.input_schema["properties"].get(key).is_none(), "{key}");
         }
         assert!(navigate.input_schema["properties"].get("url").is_some());
+        assert_eq!(navigate.input_schema["properties"]["tab"]["type"], "integer");
         let screenshot = specs.iter().find(|s| s.name == "screenshot").unwrap();
         assert!(screenshot.input_schema["properties"].get("path").is_none());
         assert!(screenshot.input_schema["properties"].get("fullPage").is_some());
+    }
+
+    #[test]
+    fn tabs_return_only_what_applies_here() {
+        let mut tab = TabInfo {
+            tab: 3,
+            url: "https://a.test/".into(),
+            title: "A".into(),
+            lent: false,
+            chosen: None,
+            opener: None,
+            last_used: None,
+            busy: false,
+            options: TabOptions::default(),
+        };
+        assert_eq!(tab_json(&tab), json!({ "tab": 3, "url": "https://a.test/", "title": "A" }));
+        tab.opener = Some(1);
+        assert_eq!(tab_json(&tab), json!({ "tab": 3, "url": "https://a.test/", "title": "A", "opener": 1 }));
     }
 
     #[test]

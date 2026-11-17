@@ -1,8 +1,8 @@
 # Vendored from browse
 
 These crates come from [browse](https://github.com/anomalyco/browse) (MIT, see [`LICENSE`](LICENSE)), at commit
-[`c3b29be5299658281fe4ecdcb926bb7b5a9d6f8c`](https://github.com/anomalyco/browse/tree/c3b29be5299658281fe4ecdcb926bb7b5a9d6f8c/rust/crates)
-(v0.1.0), from upstream's `rust/crates/`:
+[`91d67c87bc14929659a9d20a74d2d5b66ddbc43f`](https://github.com/anomalyco/browse/tree/91d67c87bc14929659a9d20a74d2d5b66ddbc43f/rust/crates)
+(v0.1.4), from upstream's `rust/crates/`:
 
 | Crate | What agent-browser uses it for |
 | --- | --- |
